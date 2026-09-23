@@ -5,8 +5,36 @@ import { importTypeScript } from "./typescript-test-loader.mjs";
 const {
   availableProviderModelSelectOptions,
   initialModelRoutes,
+  providerCatalogModelIsSelectable,
   providerModelSelectionValue,
 } = await importTypeScript(new URL("./provider-model-selection.ts", import.meta.url));
+
+test("provider model preview plugins bypass category and standard-catalog filters", () => {
+  const discovered = [
+    { id: "meta/llama-3:Q4_K_M.gguf", category: "llama" },
+    { id: "qwen/Qwen3-8B:Q5_K_M.gguf", category: "qwen" },
+  ];
+  const selectable = discovered.filter((model) => providerCatalogModelIsSelectable({
+    catalogID: "plugin-local",
+    supportsModelPreview: true,
+    usesAccountCatalog: false,
+    quickAPIFlow: false,
+    selectedCategory: "custom",
+    discoveredCategory: model.category,
+    matchesStandardModel: false,
+  }));
+
+  assert.deepEqual(selectable.map((model) => model.id), discovered.map((model) => model.id));
+  assert.equal(providerCatalogModelIsSelectable({
+    catalogID: "openai",
+    supportsModelPreview: false,
+    usesAccountCatalog: false,
+    quickAPIFlow: false,
+    selectedCategory: "custom",
+    discoveredCategory: "llama",
+    matchesStandardModel: true,
+  }), false);
+});
 
 test("available Provider model options only include active inventory on active Providers", () => {
   const data = {

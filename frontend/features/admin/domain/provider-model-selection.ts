@@ -11,6 +11,23 @@ export type InitialModelRoute = {
   status: "active";
 };
 
+type ProviderCatalogModelFilter = {
+  catalogID: string;
+  supportsModelPreview: boolean;
+  usesAccountCatalog: boolean;
+  quickAPIFlow: boolean;
+  selectedCategory: string;
+  discoveredCategory: string;
+  matchesStandardModel: boolean;
+};
+
+export function providerCatalogModelIsSelectable(filter: ProviderCatalogModelFilter) {
+  if (filter.quickAPIFlow || filter.supportsModelPreview) return true;
+  if (filter.selectedCategory !== "all" && filter.discoveredCategory !== filter.selectedCategory) return false;
+  if (filter.usesAccountCatalog || filter.catalogID === "custom") return true;
+  return filter.matchesStandardModel;
+}
+
 export function providerModelSelectionValue(providerID: string, upstreamModel: string) {
   return `${encodeURIComponent(providerID)}|${encodeURIComponent(upstreamModel)}`;
 }
