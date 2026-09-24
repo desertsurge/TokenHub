@@ -24,10 +24,11 @@ SQLite remains the default choice, suitable for:
 cp deploy/.env.example deploy/.env
 ```
 
-2. **Edit the .env file to set the PostgreSQL password**
+2. **Edit the .env file to set the PostgreSQL password and URL**
 
 ```bash
 POSTGRES_PASSWORD=your-secure-password
+TOKENHUB_DATABASE_URL=postgresql://tokenhub:your-secure-password@tokenhub-postgres:5432/tokenhub?sslmode=disable
 TOKENHUB_SECRET_KEY=your-secret-key
 # Optional: TOKENHUB_ADMIN_TOKEN=your-admin-token
 # Optional: TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=your-initial-password
