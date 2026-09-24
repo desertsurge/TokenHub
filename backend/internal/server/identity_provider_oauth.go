@@ -56,6 +56,10 @@ func identityProviderPlatformConfigurationComplete(provider AdminResource) bool 
 }
 
 func buildIdentityProviderAuthorizeURL(provider AdminResource, redirectURI string, state string, codeChallenge string) (string, error) {
+	return buildIdentityProviderAuthorizeURLWithNonce(provider, redirectURI, state, codeChallenge, "")
+}
+
+func buildIdentityProviderAuthorizeURLWithNonce(provider AdminResource, redirectURI string, state string, codeChallenge string, nonce string) (string, error) {
 	authorizeURL := strings.TrimSpace(stringField(provider.Fields, "authorize_url"))
 	clientID := strings.TrimSpace(stringField(provider.Fields, "client_id"))
 	templateKey := identityProviderTemplateKey(provider)
@@ -68,6 +72,16 @@ func buildIdentityProviderAuthorizeURL(provider AdminResource, redirectURI strin
 	target, err := buildOAuthAuthorizeURL(authorizeURL, clientID, redirectURI, identityProviderScopes(provider), state, codeChallenge)
 	if err != nil {
 		return "", err
+	}
+	if strings.TrimSpace(nonce) != "" {
+		parsed, err := url.Parse(target)
+		if err != nil {
+			return "", err
+		}
+		query := parsed.Query()
+		query.Set("nonce", strings.TrimSpace(nonce))
+		parsed.RawQuery = query.Encode()
+		target = parsed.String()
 	}
 	if templateKey != identityProviderDingTalk && templateKey != identityProviderFeishu && templateKey != identityProviderWeCom {
 		return target, nil

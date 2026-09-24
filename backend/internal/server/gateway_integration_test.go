@@ -264,6 +264,102 @@ func TestGatewayIntegrationReportsMissingProjectionDependency(t *testing.T) {
 	}
 }
 
+func TestGatewayCostCenterProjectionRequiresDependenciesAndAssociatesProjects(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_cc_tenant", "tenant.created", "tenant", "tenant_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "tenant_cc", "name": "Cost center tenant",
+	}))
+	organization := gatewayIntegrationEvent("evt_cc_org", "organization.created", "organization", "org_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "org_cc", "name": "Engineering", "parentExternalId": nil,
+	})
+	applyGatewayIntegrationEventForTest(t, app, organization)
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_cc_member", "tenant_member.added", "tenant_member", "membership_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "membership_cc", "principalExternalId": "principal_cc", "name": "Project owner", "email": "owner@example.com",
+	}))
+
+	missingCostCenterBinding := gatewayIntegrationEvent("evt_cc_binding_missing", "organization_cost_center.created", "organization_cost_center", "binding_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "binding_cc", "organizationExternalId": "org_cc", "costCenterExternalId": "cc_missing",
+	})
+	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", missingCostCenterBinding, "integration_token")
+	if response.Code != http.StatusConflict || !jsonBodyHasCode(response.Body, "integration_dependency_missing") {
+		t.Fatalf("expected missing cost center dependency, got %d: %s", response.Code, response.Body)
+	}
+
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_cc_create", "cost_center.created", "cost_center", "cc_01", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "cc_01", "code": "CC-ENG", "name": "Engineering cost center",
+	}))
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_cc_binding", "organization_cost_center.created", "organization_cost_center", "binding_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "binding_cc", "organizationExternalId": "org_cc", "costCenterExternalId": "cc_01",
+	}))
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_cc_project", "project.created", "project", "project_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "project_cc", "name": "Engineering project", "organizationExternalId": "org_cc", "ownerExternalId": "principal_cc",
+	}))
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_cc_project_cost_center_replay", "project.updated", "project", "project_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "project_cc", "name": "Engineering project", "organizationExternalId": "org_cc", "ownerExternalId": "principal_cc", "costCenterExternalId": "cc_01",
+	}))
+
+	var projection GatewayProject
+	if err := store.db.First(&projection, "external_project_id = ?", "project_cc").Error; err != nil {
+		t.Fatal(err)
+	}
+	var costCenter GatewayCostCenter
+	if err := store.db.First(&costCenter, "external_cost_center_id = ?", "cc_01").Error; err != nil {
+		t.Fatal(err)
+	}
+	if projection.CostCenterID != costCenter.ID || projection.OrganizationID == "" {
+		t.Fatalf("expected project cost center and organization association, got %+v", projection)
+	}
+	serving, found := store.GetProject(projection.ID)
+	if !found || serving.CostCenter != "CC-ENG" || serving.OwnerUserID == "" || serving.TeamID == "" {
+		t.Fatalf("expected serving project cost center code, found=%v project=%+v", found, serving)
+	}
+	var servingTeam AdminResource
+	if err := store.db.First(&servingTeam, "kind = ? AND id = ?", "teams", serving.TeamID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if servingTeam.Status != StatusActive || servingTeam.Fields["external_organization_id"] != "org_cc" {
+		t.Fatalf("expected active organization team association, got %+v", servingTeam)
+	}
+
+	updated := gatewayIntegrationEvent("evt_cc_update", "cost_center.updated", "cost_center", "cc_01", "tenant_cc", 2, map[string]interface{}{
+		"externalId": "cc_01", "code": "CC-ENG-2", "name": "Engineering cost center updated", "status": "active",
+	})
+	applyGatewayIntegrationEventForTest(t, app, updated)
+	serving, found = store.GetProject(projection.ID)
+	if !found || serving.CostCenter != "CC-ENG-2" {
+		t.Fatalf("expected serving project cost center refresh, found=%v project=%+v", found, serving)
+	}
+}
+
+func TestGatewayProjectRejectsMissingOrInactiveCostCenter(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_project_cc_tenant", "tenant.created", "tenant", "tenant_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "tenant_cc", "name": "Cost center tenant",
+	}))
+	missing := gatewayIntegrationEvent("evt_project_missing_cc", "project.created", "project", "project_missing_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "project_missing_cc", "name": "Missing cost center", "costCenterExternalId": "cc_missing",
+	})
+	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", missing, "integration_token")
+	if response.Code != http.StatusConflict || !jsonBodyHasCode(response.Body, "integration_dependency_missing") {
+		t.Fatalf("expected missing cost center rejection, got %d: %s", response.Code, response.Body)
+	}
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_project_disabled_cc", "cost_center.created", "cost_center", "cc_disabled", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "cc_disabled", "code": "CC-DISABLED", "name": "Disabled cost center",
+	}))
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_project_disable_cc", "cost_center.disabled", "cost_center", "cc_disabled", "tenant_cc", 2, map[string]interface{}{
+		"externalId": "cc_disabled", "status": StatusDisabled,
+	}))
+	inactive := gatewayIntegrationEvent("evt_project_inactive_cc", "project.created", "project", "project_inactive_cc", "tenant_cc", 1, map[string]interface{}{
+		"externalId": "project_inactive_cc", "name": "Inactive cost center", "costCenterExternalId": "cc_disabled",
+	})
+	response = doJSON(t, app, http.MethodPost, "/api/internal/integration/events", inactive, "integration_token")
+	if response.Code != http.StatusConflict || !jsonBodyHasCode(response.Body, "integration_dependency_missing") {
+		t.Fatalf("expected inactive cost center rejection, got %d: %s", response.Code, response.Body)
+	}
+}
+
 func TestGatewayProjectProjectionCreatesServingProject(t *testing.T) {
 	store := NewMemoryStore()
 	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()

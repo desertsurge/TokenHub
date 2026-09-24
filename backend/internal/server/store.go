@@ -112,8 +112,11 @@ type ProviderObservation struct {
 type Store interface {
 	ReconciliationStore
 	ApplyGatewayIntegrationEvent(event GatewayIntegrationEvent) (GatewayIntegrationApplyResult, error)
+	IsGatewayManagedAdminUser(userID string) bool
+	ResolveGatewayManagedOIDCUser(principalID, tenantExternalID, issuer, subject string) (AdminUser, error)
 	GetGatewayIntegrationReconciliation(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error)
 	CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreateInput) (GatewayModelAccessKeyCreateResult, error)
+	CheckGatewayIntegrationDependencies(input GatewayModelAccessKeyCreateInput) (GatewayIntegrationDependencyReadiness, error)
 	ListGatewayModelAccessKeys(filter GatewayModelAccessKeyFilter) (GatewayModelAccessKeyPage, error)
 	RevealGatewayModelAccessKey(id string, tenantExternalID string, principalType string, principalID string, requestedBy string) (string, error)
 	RevokeGatewayModelAccessKey(id string, tenantExternalID string, principalType string, principalID string, reason string, requestedBy string) (APIKey, error)

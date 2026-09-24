@@ -160,6 +160,9 @@ export function IdentityProviderEditModal({
           {renderField("provider_type")}
           {renderField("status")}
           {renderField("issuer_url", { placeholder: template.issuerPlaceholder })}
+          {renderField("gateway_managed")}
+          {renderField("gateway_principal_claim")}
+          {renderField("gateway_tenant_claim")}
           {renderField("client_id", { label: clientIDLabel })}
           {renderField("client_secret", {
             label: clientSecretLabel,

@@ -352,6 +352,9 @@ func (s *GormStore) ListAdminUsers() []AdminUser {
 func (s *GormStore) UpdateAdminUser(id string, patch AdminUser, password string) (AdminUser, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.IsGatewayManagedAdminUser(id) {
+		return AdminUser{}, NewHTTPError(409, "gateway_managed_user_read_only", "Managed gateway user is read-only")
+	}
 
 	var updated AdminUser
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -429,6 +432,9 @@ func updateAdminUser(db *gorm.DB, id string, patch AdminUser, password string) (
 func (s *GormStore) DeleteAdminUser(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.IsGatewayManagedAdminUser(id) {
+		return NewHTTPError(409, "gateway_managed_user_read_only", "Managed gateway user is read-only")
+	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		var user AdminUser
@@ -483,6 +489,9 @@ func usageAttributionUserID(key APIKey, project Project) string {
 func (s *GormStore) CreateAdminPasswordResetToken(userID string, createdBy string, ttl time.Duration) (string, AdminPasswordResetToken, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.IsGatewayManagedAdminUser(userID) {
+		return "", AdminPasswordResetToken{}, NewHTTPError(409, "gateway_managed_user_read_only", "Managed gateway user cannot use a local password")
+	}
 
 	var user AdminUser
 	if err := s.db.First(&user, "id = ?", userID).Error; err != nil {
@@ -547,6 +556,13 @@ func (s *GormStore) resetAdminUserPassword(token string, password string, passwo
 		if err := tx.First(&user, "id = ?", item.UserID).Error; err != nil {
 			return notFound(err, "admin_user_not_found", "Admin user not found")
 		}
+		var managedCount int64
+		if err := tx.Model(&GatewayManagedUser{}).Where("admin_user_id = ?", user.ID).Count(&managedCount).Error; err != nil {
+			return err
+		}
+		if managedCount > 0 {
+			return NewHTTPError(409, "gateway_managed_user_read_only", "Managed gateway user cannot use a local password")
+		}
 		user.PasswordHash = passwordHash
 		user.UpdatedAt = now
 		if err := tx.Save(&user).Error; err != nil {
@@ -569,6 +585,9 @@ func (s *GormStore) AuthenticateAdminUser(identity string, password string, ttl 
 	identity = strings.ToLower(strings.TrimSpace(identity))
 	var user AdminUser
 	if err := s.db.Where("LOWER(email) = ? OR LOWER(username) = ?", identity, identity).First(&user).Error; err != nil {
+		return AdminUser{}, AdminSession{}, NewHTTPError(401, "invalid_credentials", "Invalid username or password")
+	}
+	if s.IsGatewayManagedAdminUser(user.ID) {
 		return AdminUser{}, AdminSession{}, NewHTTPError(401, "invalid_credentials", "Invalid username or password")
 	}
 	if user.Status != StatusActive {

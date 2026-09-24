@@ -107,6 +107,24 @@ describe("APIKeyWizardModal", () => {
 });
 
 describe("IdentityProviderEditModal", () => {
+  it("shows explicit gateway claim mappings only for managed identities", () => {
+    const data = emptyData();
+    const props = {
+      currentUser: null,
+      data,
+      loading: false,
+      onClose: vi.fn(),
+      onSave: vi.fn(),
+      setValues: vi.fn(),
+      state: { config: identityProviderConfig(), item: { id: "idp_managed", kind: "identity-providers", name: "Managed SSO", status: "active" } },
+    };
+    const { container, rerender } = render(<IdentityProviderEditModal {...props} values={{ gateway_managed: "false" }} />);
+    expect(container.querySelector('[data-field-key="gateway_principal_claim"]')).not.toBeInTheDocument();
+    rerender(<IdentityProviderEditModal {...props} values={{ gateway_managed: "true" }} />);
+    expect(container.querySelector('[data-field-key="gateway_principal_claim"] input')).toBeRequired();
+    expect(container.querySelector('[data-field-key="gateway_tenant_claim"] input')).toBeRequired();
+  });
+
   it("renders identity provider templates contributed by plugins", () => {
     const data = emptyData();
     data.plugins = [{

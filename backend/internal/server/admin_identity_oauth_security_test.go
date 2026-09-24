@@ -789,7 +789,7 @@ func openAdminOAuthClockSkewSQLiteStores(t *testing.T, databaseTime time.Time) (
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := database.AutoMigrate(&adminOAuthFlowRecord{}, &adminOAuthExchangeRecord{}); err != nil {
+		if err := database.AutoMigrate(&adminOAuthFlowRecord{}, &adminOAuthExchangeRecord{}, &adminOAuthOIDCNonce{}); err != nil {
 			t.Fatal(err)
 		}
 		sqlDB, err := database.DB()

@@ -42,6 +42,7 @@ var defaultAdminOAuthFlowLimits = adminOAuthFlowLimits{
 type adminOAuthFlow struct {
 	State                string
 	BrowserNonce         string
+	OIDCNonce            string
 	Source               string
 	ProviderID           string
 	ReturnURL            string
@@ -125,6 +126,9 @@ func (s *GormStore) saveAdminOAuthFlow(flow adminOAuthFlow, limits adminOAuthFlo
 		}
 		record.CreatedAt = databaseNow
 		record.ExpiresAt = databaseNow.Add(adminOAuthFlowTTL)
+		if err := tx.Exec(`DELETE FROM admin_o_auth_oidc_nonces WHERE flow_id IN (SELECT id FROM admin_o_auth_flow_records WHERE expires_at <= ?)`, databaseNow).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("expires_at <= ?", databaseNow).Delete(&adminOAuthFlowRecord{}).Error; err != nil {
 			return err
 		}
@@ -151,7 +155,13 @@ func (s *GormStore) saveAdminOAuthFlow(flow adminOAuthFlow, limits adminOAuthFlo
 			admissionErr = adminOAuthFlowLimitError(databaseNow, retryAt)
 			return nil
 		}
-		return tx.Create(&record).Error
+		if err := tx.Create(&record).Error; err != nil {
+			return err
+		}
+		if flow.OIDCNonce != "" {
+			return tx.Create(&adminOAuthOIDCNonce{FlowID: record.ID, Nonce: flow.OIDCNonce}).Error
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -223,6 +233,7 @@ func (s *GormStore) ConsumeAdminOAuthFlow(state string, browserNonce string) (ad
 	stateHash := HashSecret(state)
 	browserNonceHash := HashSecret(browserNonce)
 	var record adminOAuthFlowRecord
+	var oidcNonceValue string
 	consumed := false
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := s.lockScopeForUpdate(tx, "admin_oauth_flow", stateHash); err != nil {
@@ -239,12 +250,21 @@ func (s *GormStore) ConsumeAdminOAuthFlow(state string, browserNonce string) (ad
 		if err := query.First(&record, "state_hash = ? AND browser_nonce_hash = ? AND expires_at > ?", stateHash, browserNonceHash, databaseNow).Error; err != nil {
 			return err
 		}
+		var oidcNonce adminOAuthOIDCNonce
+		if err := tx.First(&oidcNonce, "flow_id = ?", record.ID).Error; err == nil {
+			oidcNonceValue = oidcNonce.Nonce
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
 		result := tx.Where("id = ? AND state_hash = ? AND browser_nonce_hash = ?", record.ID, stateHash, browserNonceHash).Delete(&adminOAuthFlowRecord{})
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected != 1 {
 			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Where("flow_id = ?", record.ID).Delete(&adminOAuthOIDCNonce{}).Error; err != nil {
+			return err
 		}
 		consumed = true
 		return nil
@@ -258,6 +278,7 @@ func (s *GormStore) ConsumeAdminOAuthFlow(state string, browserNonce string) (ad
 	return adminOAuthFlow{
 		State:                state,
 		BrowserNonce:         browserNonce,
+		OIDCNonce:            oidcNonceValue,
 		ProviderID:           record.ProviderID,
 		ReturnURL:            record.ReturnURL,
 		RedirectURI:          record.RedirectURI,

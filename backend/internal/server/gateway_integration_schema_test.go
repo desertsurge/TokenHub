@@ -15,8 +15,11 @@ func TestGatewayIntegrationMigrationIsRegistered(t *testing.T) {
 		registered[migration.Version] = migration.Name
 	}
 	for version, name := range map[int64]string{
-		7: "add-gateway-integration-schema",
-		8: "complete-gateway-integration-schema",
+		7:  "add-gateway-integration-schema",
+		8:  "complete-gateway-integration-schema",
+		9:  "add-gateway-managed-users",
+		10: "add-admin-oauth-oidc-nonce",
+		11: "add-gateway-cost-center-projections",
 	} {
 		if registered[version] != name {
 			t.Errorf("migration version %d = %q, want %q", version, registered[version], name)
@@ -103,5 +106,58 @@ func TestGatewayIntegrationStorageMigrationUpgradesLegacySQLiteSchema(t *testing
 	}
 	if count != 1 {
 		t.Errorf("idx_usage_request_key count = %d, want 1", count)
+	}
+}
+
+func TestAdminOAuthNonceMigrationCreatesExtensionTable(t *testing.T) {
+	database, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "oauth-nonce.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	migration := adminOAuthNonceMigration()
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := migration.Go(context.Background(), directSQLMigrationExecer{DB: database}); err != nil {
+			t.Fatalf("apply oauth nonce migration attempt %d: %v", attempt+1, err)
+		}
+	}
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'admin_o_auth_oidc_nonces'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("oauth nonce extension table count = %d, want 1", count)
+	}
+}
+
+func TestGatewayCostCenterMigrationUpgradesLegacySQLiteSchema(t *testing.T) {
+	database, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "legacy-cost-center.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if _, err := database.Exec(`CREATE TABLE gateway_projects (id text PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	migration := gatewayCostCenterMigration()
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := migration.Go(context.Background(), directSQLMigrationExecer{DB: database}); err != nil {
+			t.Fatalf("apply cost center migration attempt %d: %v", attempt+1, err)
+		}
+	}
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('gateway_projects') WHERE name = 'cost_center_id'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("gateway_projects.cost_center_id count = %d, want 1", count)
+	}
+	for _, table := range []string{"gateway_cost_centers", "gateway_organization_cost_centers"} {
+		if err := database.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("table %s count = %d, want 1", table, count)
+		}
 	}
 }

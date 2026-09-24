@@ -381,6 +381,8 @@ Token 用量与成本只挂在 generation span 上，绝不挂在根 span 上。
 
 请使用 TokenHub 后端公开地址和回调路径 `/api/admin/auth/oauth/callback`。Callback URL 可留空，让系统按后端请求 Host 自动生成；如果显式填写，完整 URL 必须与身份平台中登记的回调地址完全一致。
 
+对于通过集成事件 API 同步的用户，配置专用 OIDC 身份源并启用「集成托管身份」。填写可信的 Issuer 及 HTTPS 授权、Token、userinfo 端点；仅本地开发允许回环地址使用 HTTP。配置可信的 `jwks_url` 或 `discovery_url`，以便 TokenHub 验证 ID Token 签名。Scope 至少包含 `openid`，「外部用户 Claim」和「租户 Claim」分别填写 userinfo 中与成员事件 `principalExternalId`、`tenantId` 一致的字段名；其他 Scope 和端点路径由身份源决定。同一 TokenHub 部署内，外部用户 ID 必须全局唯一。TokenHub 在首次登录前预创建托管用户；首次 OIDC 登录会验证 ID Token 的签名、Issuer、Audience、有效期和 nonce，再将返回的 `sub` 与配置的 Issuer 绑定至该账户。未同步用户及邮箱或 subject 冲突会被拒绝，不自动合并；托管用户不能使用本地密码。启用前须核实 Issuer、端点、客户端注册、JWKS/Discovery 元数据、Claim 和成员同步。
+
 管理员 OAuth 登录完成时，重定向 URL 不会携带管理员会话 Token。TokenHub 只向控制台返回短时、单次使用的 code；控制台完成一次交换后，仅在当前浏览器标签页保留得到的会话。刷新该标签页仍会保持登录；关闭标签页后需要重新登录。
 
 身份源 Client Secret 与通知渠道敏感字段（包括 Webhook URL、SMTP 密码、Bot Token、签名密钥和 Access Token）在管理 API 响应和 CSV 导出中始终以掩码展示，并在审计快照中脱敏。告警投递输出不会暴露包含凭据的完整 URL：URL 目标只保留 scheme 和 host，路径、query 以及错误文本中匹配到的凭据都会被掩码；该规则同样覆盖告警投递 CSV 导出和投递审计快照。

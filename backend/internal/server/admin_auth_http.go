@@ -154,7 +154,15 @@ func (s *Server) handleAdminOAuthStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	target, err := buildIdentityProviderAuthorizeURL(provider, redirectURI, state, providerCodeChallenge)
+	oidcNonce := ""
+	if strings.EqualFold(stringField(provider.Fields, "gateway_managed"), "true") {
+		oidcNonce, err = randomHex(32)
+		if err != nil {
+			writeError(w, r, NewHTTPError(500, "oauth_start_failed", "OAuth start failed"))
+			return
+		}
+	}
+	target, err := buildIdentityProviderAuthorizeURLWithNonce(provider, redirectURI, state, providerCodeChallenge, oidcNonce)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -164,6 +172,7 @@ func (s *Server) handleAdminOAuthStart(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SaveAdminOAuthFlow(adminOAuthFlow{
 		State:                state,
 		BrowserNonce:         browserNonce,
+		OIDCNonce:            oidcNonce,
 		Source:               s.clientIP(r),
 		ProviderID:           provider.ID,
 		ReturnURL:            returnURL,
@@ -221,10 +230,30 @@ func (s *Server) handleAdminOAuthCallback(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, oauthRedirectWithError(flow.ReturnURL, "token_exchange_failed"), http.StatusFound)
 		return
 	}
+	var verifiedIDTokenClaims map[string]any
+	if strings.EqualFold(stringField(provider.Fields, "gateway_managed"), "true") {
+		verifiedIDTokenClaims, err = verifyManagedOIDCToken(r.Context(), provider, token.IDToken, flow.OIDCNonce)
+		if err != nil {
+			log.Printf("managed oidc token verification failed provider_id=%s error=%v", provider.ID, err)
+			http.Redirect(w, r, oauthRedirectWithError(flow.ReturnURL, "id_token_verification_failed"), http.StatusFound)
+			return
+		}
+	}
 	claims, err := s.fetchOAuthUserInfo(r.Context(), provider, token.AccessToken, code)
 	if err != nil {
 		http.Redirect(w, r, oauthRedirectWithError(flow.ReturnURL, "userinfo_failed"), http.StatusFound)
 		return
+	}
+	if verifiedIDTokenClaims != nil {
+		if idSubject := firstOAuthClaim(verifiedIDTokenClaims, "sub"); idSubject != "" {
+			if userinfoSubject := firstOAuthClaim(claims, "sub"); userinfoSubject != "" && userinfoSubject != idSubject {
+				http.Redirect(w, r, oauthRedirectWithError(flow.ReturnURL, "identity_subject_mismatch"), http.StatusFound)
+				return
+			}
+			if _, present := claims["sub"]; !present {
+				claims["sub"] = idSubject
+			}
+		}
 	}
 	user, err := s.upsertOAuthAdminUser(provider, claims)
 	if err != nil {
@@ -302,6 +331,9 @@ func (s *Server) activeOAuthIdentityProviders() []AdminResource {
 		if !identityProviderPlatformConfigurationComplete(item) {
 			continue
 		}
+		if strings.EqualFold(stringField(item.Fields, "gateway_managed"), "true") && !validGatewayManagedProvider(item) {
+			continue
+		}
 		items = append(items, item)
 	}
 	return items
@@ -337,6 +369,36 @@ func identityProviderScopes(provider AdminResource) string {
 		return strings.Join(out, " ")
 	}
 	return raw
+}
+
+func validGatewayManagedProvider(provider AdminResource) bool {
+	keyURL := strings.TrimSpace(stringField(provider.Fields, "jwks_url"))
+	discoveryURL := strings.TrimSpace(stringField(provider.Fields, "discovery_url"))
+	if !strings.EqualFold(stringField(provider.Fields, "provider_type"), "oidc") ||
+		strings.TrimSpace(stringField(provider.Fields, "gateway_principal_claim")) == "" ||
+		strings.TrimSpace(stringField(provider.Fields, "gateway_tenant_claim")) == "" ||
+		!validGatewayManagedOIDCURL(stringField(provider.Fields, "issuer_url")) ||
+		!validGatewayManagedOIDCURL(stringField(provider.Fields, "authorize_url")) ||
+		!validGatewayManagedOIDCURL(stringField(provider.Fields, "token_url")) ||
+		!validGatewayManagedOIDCURL(stringField(provider.Fields, "userinfo_url")) ||
+		(keyURL == "" && discoveryURL == "") ||
+		(keyURL != "" && !validGatewayManagedOIDCURL(keyURL)) ||
+		(discoveryURL != "" && !validGatewayManagedOIDCURL(discoveryURL)) {
+		return false
+	}
+	scopes := strings.Fields(identityProviderScopes(provider))
+	for _, scope := range scopes {
+		if scope == "openid" {
+			return true
+		}
+	}
+	return false
+}
+
+func validGatewayManagedOIDCURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && parsed.Host != "" && parsed.User == nil && parsed.Fragment == "" &&
+		(parsed.Scheme == "https" || parsed.Scheme == "http" && isOAuthLoopbackHost(parsed.Hostname()))
 }
 
 func identityProviderIconKey(provider AdminResource) string {
@@ -715,6 +777,17 @@ func (s *Server) fetchOAuthUserInfo(ctx context.Context, provider AdminResource,
 }
 
 func (s *Server) upsertOAuthAdminUser(provider AdminResource, claims map[string]any) (AdminUser, error) {
+	if strings.EqualFold(stringField(provider.Fields, "gateway_managed"), "true") {
+		if !validGatewayManagedProvider(provider) {
+			return AdminUser{}, NewHTTPError(http.StatusBadRequest, "gateway_identity_provider_invalid", "Managed gateway identity provider requires OIDC, trusted URLs, and explicit principal and tenant claims")
+		}
+		return s.store.ResolveGatewayManagedOIDCUser(
+			firstOAuthClaim(claims, stringField(provider.Fields, "gateway_principal_claim")),
+			firstOAuthClaim(claims, stringField(provider.Fields, "gateway_tenant_claim")),
+			strings.TrimSpace(stringField(provider.Fields, "issuer_url")),
+			firstOAuthClaim(claims, "sub"),
+		)
+	}
 	usernameClaim := strings.TrimSpace(stringField(provider.Fields, "username_claim"))
 	emailClaim := strings.TrimSpace(stringField(provider.Fields, "email_claim"))
 	teamClaim := strings.TrimSpace(stringField(provider.Fields, "team_claim"))
@@ -744,6 +817,9 @@ func (s *Server) upsertOAuthAdminUser(provider AdminResource, claims map[string]
 	}
 	users := s.store.ListAdminUsers()
 	if existing, ok := findOAuthAdminUserByEmail(users, email); ok {
+		if s.store.IsGatewayManagedAdminUser(existing.ID) {
+			return AdminUser{}, NewHTTPError(http.StatusConflict, "gateway_identity_conflict", "Managed gateway user requires its configured OIDC identity provider")
+		}
 		if existing.Status != StatusActive {
 			return AdminUser{}, NewHTTPError(403, "admin_user_disabled", "Admin user is disabled")
 		}

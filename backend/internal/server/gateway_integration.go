@@ -22,6 +22,7 @@ const (
 func (s *Server) registerGatewayRoutes() {
 	s.mux.HandleFunc("/api/internal/integration/events", s.handleGatewayIntegrationEvent)
 	s.mux.HandleFunc("/api/internal/integration/reconciliation", s.handleGatewayIntegrationReconciliation)
+	s.mux.HandleFunc("/api/internal/integration/dependencies", s.handleGatewayIntegrationDependencies)
 	s.mux.HandleFunc("/api/internal/models", s.handleGatewayModels)
 	s.mux.HandleFunc("/api/internal/providers", s.handleGatewayProviders)
 	s.mux.HandleFunc("/api/internal/routes", s.handleGatewayRoutes)
@@ -75,6 +76,7 @@ type gatewayProjectionDigestItem struct {
 	ParentID       string `json:"parent_id,omitempty"`
 	ProjectID      string `json:"project_id,omitempty"`
 	OwnerID        string `json:"owner_id,omitempty"`
+	CostCenterID   string `json:"cost_center_id,omitempty"`
 	Name           string `json:"name,omitempty"`
 	WorkloadType   string `json:"workload_type,omitempty"`
 	Environment    string `json:"environment,omitempty"`
@@ -144,7 +146,36 @@ type GatewayProject struct {
 	ExternalProjectID string `gorm:"uniqueIndex:idx_gateway_project_external,priority:2"`
 	OrganizationID    string `gorm:"index"`
 	OwnerPrincipalID  string `gorm:"index"`
+	CostCenterID      string `gorm:"index"`
 	Name              string
+	Status            string `gorm:"index"`
+	Version           int64
+	SyncedAt          time.Time
+	DeletedAt         *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type GatewayCostCenter struct {
+	ID                   string `gorm:"primaryKey"`
+	TenantID             string `gorm:"uniqueIndex:idx_gateway_cost_center_external,priority:1;index"`
+	ExternalCostCenterID string `gorm:"uniqueIndex:idx_gateway_cost_center_external,priority:2"`
+	Code                 string
+	Name                 string
+	Status               string `gorm:"index"`
+	Version              int64
+	SyncedAt             time.Time
+	DeletedAt            *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type GatewayOrganizationCostCenter struct {
+	ID                string `gorm:"primaryKey"`
+	TenantID          string `gorm:"uniqueIndex:idx_gateway_org_cost_center_external,priority:1;index"`
+	ExternalBindingID string `gorm:"uniqueIndex:idx_gateway_org_cost_center_external,priority:2"`
+	OrganizationID    string `gorm:"index"`
+	CostCenterID      string `gorm:"index"`
 	Status            string `gorm:"index"`
 	Version           int64
 	SyncedAt          time.Time
@@ -319,6 +350,7 @@ func (s *GormStore) GetGatewayIntegrationReconciliation(tenantExternalID string)
 		AggregateCounts: map[string]int64{
 			"tenant": 0, "organization": 0, "tenant_member": 0,
 			"organization_member": 0, "project": 0, "workload": 0,
+			"cost_center": 0, "organization_cost_center": 0,
 		},
 	}
 	if err := s.db.Model(&IntegrationInbox{}).Where("tenant_id = ?", tenantID).Count(&summary.ReceivedEvents).Error; err != nil {
@@ -359,6 +391,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 	itemsByType := map[string][]gatewayProjectionDigestItem{
 		"tenant": {}, "organization": {}, "tenant_member": {},
 		"organization_member": {}, "project": {}, "workload": {},
+		"cost_center": {}, "organization_cost_center": {},
 	}
 	var tenant GatewayTenant
 	if err := s.db.First(&tenant, "external_tenant_id = ?", tenantExternalID).Error; err != nil {
@@ -418,9 +451,45 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 	projectIDs := make(map[string]string, len(projects))
 	for _, item := range projects {
 		projectIDs[item.ID] = item.ExternalProjectID
+		costCenterExternalID := ""
+		if item.CostCenterID != "" {
+			var costCenter GatewayCostCenter
+			if err := s.db.First(&costCenter, "id = ?", item.CostCenterID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			} else if err == nil {
+				costCenterExternalID = costCenter.ExternalCostCenterID
+			}
+		}
 		itemsByType["project"] = append(itemsByType["project"], gatewayProjectionDigestItem{
 			ExternalID: item.ExternalProjectID, OrganizationID: organizationIDs[item.OrganizationID], OwnerID: principalIDs[item.OwnerPrincipalID],
-			Name: item.Name, Status: item.Status, Version: item.Version, Deleted: item.DeletedAt != nil,
+			CostCenterID: costCenterExternalID,
+			Name:         item.Name, Status: item.Status, Version: item.Version, Deleted: item.DeletedAt != nil,
+		})
+	}
+
+	var costCenters []GatewayCostCenter
+	if err := s.db.Where("tenant_id = ?", tenant.ID).Find(&costCenters).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range costCenters {
+		itemsByType["cost_center"] = append(itemsByType["cost_center"], gatewayProjectionDigestItem{
+			ExternalID: item.ExternalCostCenterID, Name: item.Name, Status: item.Status,
+			Version: item.Version, Deleted: item.DeletedAt != nil,
+		})
+	}
+
+	var organizationCostCenters []GatewayOrganizationCostCenter
+	if err := s.db.Where("tenant_id = ?", tenant.ID).Find(&organizationCostCenters).Error; err != nil {
+		return nil, err
+	}
+	costCenterIDs := make(map[string]string, len(costCenters))
+	for _, item := range costCenters {
+		costCenterIDs[item.ID] = item.ExternalCostCenterID
+	}
+	for _, item := range organizationCostCenters {
+		itemsByType["organization_cost_center"] = append(itemsByType["organization_cost_center"], gatewayProjectionDigestItem{
+			ExternalID: item.ExternalBindingID, OrganizationID: organizationIDs[item.OrganizationID], CostCenterID: costCenterIDs[item.CostCenterID],
+			Status: item.Status, Version: item.Version, Deleted: item.DeletedAt != nil,
 		})
 	}
 
@@ -482,6 +551,8 @@ func validateGatewayIntegrationEvent(event GatewayIntegrationEvent) error {
 		"organization_member.added": true, "organization_member.updated": true, "organization_member.removed": true,
 		"project.created": true, "project.updated": true, "project.archived": true, "project.deleted": true,
 		"workload.created": true, "workload.updated": true, "workload.disabled": true, "workload.deleted": true,
+		"cost_center.created": true, "cost_center.updated": true, "cost_center.disabled": true, "cost_center.deleted": true,
+		"organization_cost_center.created": true, "organization_cost_center.updated": true, "organization_cost_center.removed": true,
 	}
 	if !allowedTypes[event.EventType] {
 		return NewHTTPError(http.StatusBadRequest, "invalid_integration_event", "Unknown integration event type")
@@ -530,6 +601,12 @@ func validateGatewayIntegrationPayload(event GatewayIntegrationEvent) error {
 		if event.EventType == "workload.created" {
 			return required("name", "workloadType")
 		}
+	case "cost_center":
+		if event.EventType == "cost_center.created" {
+			return required("name", "code")
+		}
+	case "organization_cost_center":
+		return required("organizationExternalId", "costCenterExternalId")
 	}
 	return nil
 }
@@ -557,6 +634,10 @@ func applyGatewayProjection(tx *gorm.DB, event GatewayIntegrationEvent, now time
 		return applyGatewayProject(tx, event, now)
 	case "workload":
 		return applyGatewayWorkload(tx, event, now)
+	case "cost_center":
+		return applyGatewayCostCenter(tx, event, now)
+	case "organization_cost_center":
+		return applyGatewayOrganizationCostCenter(tx, event, now)
 	default:
 		return "", "", 0, "", NewHTTPError(http.StatusBadRequest, "invalid_integration_event", "Unknown integration aggregate type")
 	}
@@ -625,6 +706,9 @@ func applyGatewayTenant(tx *gorm.DB, event GatewayIntegrationEvent, now time.Tim
 	if err := tx.Save(&item).Error; err != nil {
 		return "", "tenant", 0, "", err
 	}
+	if err := refreshGatewayManagedTenantUsers(tx, item.ID); err != nil {
+		return "", "tenant", 0, "", err
+	}
 	if item.DeletedAt != nil {
 		if err := revokeGatewayTenantModelAccessKeys(tx, item.ExternalTenantID); err != nil {
 			return "", "tenant", 0, "", err
@@ -669,6 +753,15 @@ func applyGatewayOrganization(tx *gorm.DB, event GatewayIntegrationEvent, now ti
 	if err := tx.Save(&item).Error; err != nil {
 		return "", "organization", 0, "", err
 	}
+	var organizationProjects []GatewayProject
+	if err := tx.Where("organization_id = ?", item.ID).Find(&organizationProjects).Error; err != nil {
+		return "", "organization", 0, "", err
+	}
+	for _, project := range organizationProjects {
+		if err := syncGatewayServingProject(tx, project, now); err != nil {
+			return "", "organization", 0, "", err
+		}
+	}
 	if item.DeletedAt != nil {
 		if err := revokeGatewayOrganizationModelAccessKeys(tx, tenant.ExternalTenantID, item.ID); err != nil {
 			return "", "organization", 0, "", err
@@ -693,6 +786,11 @@ func applyGatewayPrincipal(tx *gorm.DB, event GatewayIntegrationEvent, now time.
 	}
 	if err == nil {
 		if item.ExternalMembershipID == event.AggregateID && item.Version >= event.Version {
+			if payloadString(event.Payload, "email") != "" {
+				if err := syncGatewayManagedUser(tx, item, event); err != nil {
+					return "", "principal", 0, "", err
+				}
+			}
 			return item.ID, "principal", item.Version, "ignored_stale", nil
 		}
 		if item.ExternalMembershipID != event.AggregateID && !item.SourceOccurredAt.IsZero() {
@@ -712,6 +810,9 @@ func applyGatewayPrincipal(tx *gorm.DB, event GatewayIntegrationEvent, now time.
 	item.Status, item.DeletedAt = projectionStatus(event, item.Status, item.DeletedAt, now)
 	item.Version, item.SourceOccurredAt, item.SyncedAt = event.Version, event.OccurredAt, now
 	if err := tx.Save(&item).Error; err != nil {
+		return "", "principal", 0, "", err
+	}
+	if err := syncGatewayManagedUser(tx, item, event); err != nil {
 		return "", "principal", 0, "", err
 	}
 	if item.DeletedAt != nil {
@@ -770,6 +871,20 @@ func applyGatewayProject(tx *gorm.DB, event GatewayIntegrationEvent, now time.Ti
 		return "", "project", 0, "", err
 	}
 	if err == nil && item.Version >= event.Version {
+		if item.Version == event.Version {
+			if costCenterID, supplied, err := resolveGatewayProjectCostCenter(tx, tenant, event, item.CostCenterID); err != nil {
+				return "", "project", 0, "", err
+			} else if supplied {
+				item.CostCenterID = costCenterID
+				item.SyncedAt = now
+				if err := tx.Save(&item).Error; err != nil {
+					return "", "project", 0, "", err
+				}
+				if err := syncGatewayServingProject(tx, item, now); err != nil {
+					return "", "project", 0, "", err
+				}
+			}
+		}
 		return item.ID, "project", item.Version, "ignored_stale", nil
 	}
 	organizationID := item.OrganizationID
@@ -794,10 +909,14 @@ func applyGatewayProject(tx *gorm.DB, event GatewayIntegrationEvent, now time.Ti
 			ownerID = owner.ID
 		}
 	}
+	costCenterID, _, err := resolveGatewayProjectCostCenter(tx, tenant, event, item.CostCenterID)
+	if err != nil {
+		return "", "project", 0, "", err
+	}
 	if item.ID == "" {
 		item.ID, item.TenantID, item.ExternalProjectID = NewID("gwj"), tenant.ID, event.AggregateID
 	}
-	item.OrganizationID, item.OwnerPrincipalID = organizationID, ownerID
+	item.OrganizationID, item.OwnerPrincipalID, item.CostCenterID = organizationID, ownerID, costCenterID
 	if name := payloadString(event.Payload, "name"); name != "" {
 		item.Name = name
 	}
@@ -812,6 +931,27 @@ func applyGatewayProject(tx *gorm.DB, event GatewayIntegrationEvent, now time.Ti
 	return item.ID, "project", item.Version, "applied", nil
 }
 
+func resolveGatewayProjectCostCenter(tx *gorm.DB, tenant GatewayTenant, event GatewayIntegrationEvent, currentID string) (string, bool, error) {
+	if _, supplied := event.Payload["costCenterExternalId"]; !supplied {
+		return currentID, false, nil
+	}
+	costCenterID := ""
+	if externalID := payloadString(event.Payload, "costCenterExternalId"); externalID != "" {
+		var costCenter GatewayCostCenter
+		if err := tx.First(&costCenter, "tenant_id = ? AND external_cost_center_id = ?", tenant.ID, externalID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return "", true, NewHTTPError(http.StatusConflict, "integration_dependency_missing", "Gateway cost center projection is not available")
+			}
+			return "", true, err
+		}
+		if costCenter.DeletedAt != nil || costCenter.Status != StatusActive {
+			return "", true, NewHTTPError(http.StatusConflict, "integration_dependency_missing", "Gateway cost center projection is not active")
+		}
+		costCenterID = costCenter.ID
+	}
+	return costCenterID, true, nil
+}
+
 func syncGatewayServingProject(tx *gorm.DB, projection GatewayProject, now time.Time) error {
 	var project Project
 	err := tx.First(&project, "id = ?", projection.ID).Error
@@ -823,12 +963,187 @@ func syncGatewayServingProject(tx *gorm.DB, projection GatewayProject, now time.
 		project.CreatedAt = now
 	}
 	project.Name = projection.Name
+	project.OwnerUserID = ""
+	if projection.OwnerPrincipalID != "" {
+		var managed GatewayManagedUser
+		if err := tx.First(&managed, "external_principal_id = ?", projection.OwnerPrincipalID).Error; err == nil {
+			project.OwnerUserID = managed.AdminUserID
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+	}
+	project.TeamID = ""
+	if projection.OrganizationID != "" {
+		var organization GatewayOrganization
+		if err := tx.First(&organization, "id = ?", projection.OrganizationID).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		} else {
+			teamID, err := syncGatewayServingOrganizationTeam(tx, organization, now)
+			if err != nil {
+				return err
+			}
+			project.TeamID = teamID
+			if err := tx.Where("project_id = ?", projection.ID).Delete(&ProjectTeam{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&ProjectTeam{ProjectID: projection.ID, TeamID: teamID, Role: "maintainer", CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	project.CostCenter = ""
+	if projection.CostCenterID != "" {
+		var costCenter GatewayCostCenter
+		if err := tx.First(&costCenter, "id = ?", projection.CostCenterID).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		} else {
+			project.CostCenter = costCenter.Code
+			if project.CostCenter == "" {
+				project.CostCenter = costCenter.ExternalCostCenterID
+			}
+		}
+	}
 	project.Status = StatusDisabled
 	if projection.Status == StatusActive {
 		project.Status = StatusActive
 	}
 	project.UpdatedAt = now
 	return tx.Save(&project).Error
+}
+
+func syncGatewayServingOrganizationTeam(tx *gorm.DB, organization GatewayOrganization, now time.Time) (string, error) {
+	var tenant GatewayTenant
+	if err := tx.First(&tenant, "id = ?", organization.TenantID).Error; err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256([]byte(tenant.ExternalTenantID + ":" + organization.ExternalOrganizationID))
+	teamID := "gwt_" + hex.EncodeToString(digest[:12])
+	var team AdminResource
+	err := tx.First(&team, "id = ? AND kind = ?", teamID, "teams").Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		team = AdminResource{ID: teamID, Kind: "teams", CreatedAt: now}
+	}
+	team.Name = organization.Name
+	team.Status = StatusDisabled
+	if organization.Status == StatusActive && organization.DeletedAt == nil {
+		team.Status = StatusActive
+	}
+	if team.Fields == nil {
+		team.Fields = map[string]any{}
+	}
+	team.Fields["managed_by"] = "gateway_integration"
+	team.Fields["tenant_id"] = tenant.ExternalTenantID
+	team.Fields["external_organization_id"] = organization.ExternalOrganizationID
+	team.UpdatedAt = now
+	if err := tx.Save(&team).Error; err != nil {
+		return "", err
+	}
+	return teamID, nil
+}
+
+func syncGatewayServingProjectsForCostCenter(tx *gorm.DB, costCenter GatewayCostCenter, now time.Time) error {
+	var projects []GatewayProject
+	if err := tx.Where("cost_center_id = ?", costCenter.ID).Find(&projects).Error; err != nil {
+		return err
+	}
+	for _, project := range projects {
+		if err := syncGatewayServingProject(tx, project, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyGatewayCostCenter(tx *gorm.DB, event GatewayIntegrationEvent, now time.Time) (string, string, int64, string, error) {
+	tenant, err := requireGatewayTenant(tx, event.TenantID)
+	if err != nil {
+		return "", "cost_center", 0, "", err
+	}
+	var item GatewayCostCenter
+	err = tx.First(&item, "tenant_id = ? AND external_cost_center_id = ?", tenant.ID, event.AggregateID).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", "cost_center", 0, "", err
+	}
+	if err == nil && item.Version >= event.Version {
+		return item.ID, "cost_center", item.Version, "ignored_stale", nil
+	}
+	if item.ID == "" {
+		item.ID, item.TenantID, item.ExternalCostCenterID = NewID("gwc"), tenant.ID, event.AggregateID
+	}
+	if code := payloadString(event.Payload, "code"); code != "" {
+		item.Code = code
+	}
+	if name := payloadString(event.Payload, "name"); name != "" {
+		item.Name = name
+	}
+	item.Status, item.DeletedAt = projectionStatus(event, item.Status, item.DeletedAt, now)
+	item.Version, item.SyncedAt = event.Version, now
+	if err := tx.Save(&item).Error; err != nil {
+		return "", "cost_center", 0, "", err
+	}
+	if err := syncGatewayServingProjectsForCostCenter(tx, item, now); err != nil {
+		return "", "cost_center", 0, "", err
+	}
+	return item.ID, "cost_center", item.Version, "applied", nil
+}
+
+func applyGatewayOrganizationCostCenter(tx *gorm.DB, event GatewayIntegrationEvent, now time.Time) (string, string, int64, string, error) {
+	tenant, err := requireGatewayTenant(tx, event.TenantID)
+	if err != nil {
+		return "", "organization_cost_center", 0, "", err
+	}
+	organizationExternalID := payloadString(event.Payload, "organizationExternalId")
+	var organization GatewayOrganization
+	if err := tx.First(&organization, "tenant_id = ? AND external_organization_id = ?", tenant.ID, organizationExternalID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", "organization_cost_center", 0, "", NewHTTPError(http.StatusConflict, "integration_dependency_missing", "Gateway organization projection is not available")
+		}
+		return "", "organization_cost_center", 0, "", err
+	}
+	costCenterExternalID := payloadString(event.Payload, "costCenterExternalId")
+	var costCenter GatewayCostCenter
+	if err := tx.First(&costCenter, "tenant_id = ? AND external_cost_center_id = ?", tenant.ID, costCenterExternalID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", "organization_cost_center", 0, "", NewHTTPError(http.StatusConflict, "integration_dependency_missing", "Gateway cost center projection is not available")
+		}
+		return "", "organization_cost_center", 0, "", err
+	}
+	var item GatewayOrganizationCostCenter
+	err = tx.First(&item, "tenant_id = ? AND external_binding_id = ?", tenant.ID, event.AggregateID).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", "organization_cost_center", 0, "", err
+	}
+	if err == nil && item.Version >= event.Version {
+		return item.ID, "organization_cost_center", item.Version, "ignored_stale", nil
+	}
+	if item.ID == "" {
+		item.ID, item.TenantID, item.ExternalBindingID = NewID("gwoc"), tenant.ID, event.AggregateID
+	}
+	item.OrganizationID, item.CostCenterID = organization.ID, costCenter.ID
+	item.Status, item.DeletedAt = projectionStatus(event, item.Status, item.DeletedAt, now)
+	if item.Status == StatusActive && item.DeletedAt == nil {
+		var activeCount int64
+		if err := tx.Model(&GatewayOrganizationCostCenter{}).
+			Where("tenant_id = ? AND organization_id = ? AND status = ? AND deleted_at IS NULL AND id <> ?", tenant.ID, organization.ID, StatusActive, item.ID).
+			Count(&activeCount).Error; err != nil {
+			return "", "organization_cost_center", 0, "", err
+		}
+		if activeCount > 0 {
+			return "", "organization_cost_center", 0, "", NewHTTPError(http.StatusConflict, "integration_conflict", "Organization already has an active cost center binding")
+		}
+	}
+	item.Version, item.SyncedAt = event.Version, now
+	if err := tx.Save(&item).Error; err != nil {
+		return "", "organization_cost_center", 0, "", err
+	}
+	return item.ID, "organization_cost_center", item.Version, "applied", nil
 }
 
 func rejectGatewayManagedProjectMutation(db *gorm.DB, projectID string) error {
