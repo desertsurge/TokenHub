@@ -137,7 +137,7 @@ func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event Gatew
 			return err
 		}
 	}
-	return nil
+	return refreshGatewayManagedUserTeams(tx, principalID)
 }
 
 func gatewayManagedUserActive(tx *gorm.DB, principalID string) (bool, error) {
@@ -171,6 +171,9 @@ func refreshGatewayManagedTenantUsers(tx *gorm.DB, tenantID string) error {
 		}
 		if err := tx.Model(&AdminUser{}).Where("id = ?", managed.AdminUserID).
 			Updates(map[string]any{"status": status, "updated_at": time.Now().UTC()}).Error; err != nil {
+			return err
+		}
+		if err := refreshGatewayManagedUserTeams(tx, principal.ExternalPrincipalID); err != nil {
 			return err
 		}
 	}

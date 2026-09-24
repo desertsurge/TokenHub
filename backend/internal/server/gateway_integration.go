@@ -731,6 +731,9 @@ func applyGatewayOrganization(tx *gorm.DB, event GatewayIntegrationEvent, now ti
 		if _, err := syncGatewayServingOrganizationTeam(tx, item, now); err != nil {
 			return "", "organization", 0, "", err
 		}
+		if err := refreshGatewayOrganizationTeamUsers(tx, item.ID); err != nil {
+			return "", "organization", 0, "", err
+		}
 		return item.ID, "organization", item.Version, "ignored_stale", nil
 	}
 	parentID := item.ParentID
@@ -757,6 +760,9 @@ func applyGatewayOrganization(tx *gorm.DB, event GatewayIntegrationEvent, now ti
 		return "", "organization", 0, "", err
 	}
 	if _, err := syncGatewayServingOrganizationTeam(tx, item, now); err != nil {
+		return "", "organization", 0, "", err
+	}
+	if err := refreshGatewayOrganizationTeamUsers(tx, item.ID); err != nil {
 		return "", "organization", 0, "", err
 	}
 	var organizationProjects []GatewayProject
@@ -852,8 +858,12 @@ func applyGatewayOrganizationBinding(tx *gorm.DB, event GatewayIntegrationEvent,
 		return "", "organization_membership", 0, "", err
 	}
 	if err == nil && item.Version >= event.Version {
+		if err := refreshGatewayManagedUserTeams(tx, externalPrincipalID); err != nil {
+			return "", "organization_membership", 0, "", err
+		}
 		return item.ID, "organization_membership", item.Version, "ignored_stale", nil
 	}
+	previousPrincipalID := item.PrincipalID
 	if item.ID == "" {
 		item.ID, item.TenantID, item.ExternalMembershipID = NewID("gwb"), tenant.ID, event.AggregateID
 	}
@@ -862,6 +872,18 @@ func applyGatewayOrganizationBinding(tx *gorm.DB, event GatewayIntegrationEvent,
 	item.Version, item.SyncedAt = event.Version, now
 	if err := tx.Save(&item).Error; err != nil {
 		return "", "organization_membership", 0, "", err
+	}
+	if err := refreshGatewayManagedUserTeams(tx, externalPrincipalID); err != nil {
+		return "", "organization_membership", 0, "", err
+	}
+	if previousPrincipalID != "" && previousPrincipalID != principal.ID {
+		var previousPrincipal GatewayPrincipal
+		if err := tx.First(&previousPrincipal, "id = ?", previousPrincipalID).Error; err != nil {
+			return "", "organization_membership", 0, "", err
+		}
+		if err := refreshGatewayManagedUserTeams(tx, previousPrincipal.ExternalPrincipalID); err != nil {
+			return "", "organization_membership", 0, "", err
+		}
 	}
 	return item.ID, "organization_membership", item.Version, "applied", nil
 }
