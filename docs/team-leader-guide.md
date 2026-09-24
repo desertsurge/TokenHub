@@ -28,6 +28,8 @@ Each linked team has one project role:
 
 Direct project membership and every linked-team role are merged deterministically: `owner` > `maintainer` > `developer` > `viewer`. A user who belongs to several linked teams receives the highest role. Administrators manage a user's primary and additional memberships in **User Management**. Existing single-team projects migrate in compatibility mode, which preserves access for their team leader without granting new access to ordinary same-team users; an administrator can replace that compatibility role in Project Details.
 
+For integration-managed data, an organization event creates or updates its managed team even before any project exists. A project linked to that organization receives the team with `viewer` access; its owner is assigned separately. Removing the organization from the project removes the team link.
+
 In **Project Spaces**, select a project and use **Linked Teams** to add a team, change its role, or remove it. Access changes take effect on the next request. Only active teams can be assigned to users or newly linked to projects; disabling a linked team immediately stops its project role from granting access. The primary team cannot be removed until another primary team is assigned, the last linked team cannot be removed, and a team referenced by a project or user cannot be deleted.
 
 The management API exposes the same operations:

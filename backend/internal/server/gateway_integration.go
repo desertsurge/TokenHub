@@ -728,6 +728,9 @@ func applyGatewayOrganization(tx *gorm.DB, event GatewayIntegrationEvent, now ti
 		return "", "organization", 0, "", err
 	}
 	if err == nil && item.Version >= event.Version {
+		if _, err := syncGatewayServingOrganizationTeam(tx, item, now); err != nil {
+			return "", "organization", 0, "", err
+		}
 		return item.ID, "organization", item.Version, "ignored_stale", nil
 	}
 	parentID := item.ParentID
@@ -751,6 +754,9 @@ func applyGatewayOrganization(tx *gorm.DB, event GatewayIntegrationEvent, now ti
 	item.Status, item.DeletedAt = projectionStatus(event, item.Status, item.DeletedAt, now)
 	item.Version, item.SyncedAt = event.Version, now
 	if err := tx.Save(&item).Error; err != nil {
+		return "", "organization", 0, "", err
+	}
+	if _, err := syncGatewayServingOrganizationTeam(tx, item, now); err != nil {
 		return "", "organization", 0, "", err
 	}
 	var organizationProjects []GatewayProject
@@ -880,10 +886,10 @@ func applyGatewayProject(tx *gorm.DB, event GatewayIntegrationEvent, now time.Ti
 				if err := tx.Save(&item).Error; err != nil {
 					return "", "project", 0, "", err
 				}
-				if err := syncGatewayServingProject(tx, item, now); err != nil {
-					return "", "project", 0, "", err
-				}
 			}
+		}
+		if err := syncGatewayServingProject(tx, item, now); err != nil {
+			return "", "project", 0, "", err
 		}
 		return item.ID, "project", item.Version, "ignored_stale", nil
 	}
@@ -973,6 +979,9 @@ func syncGatewayServingProject(tx *gorm.DB, projection GatewayProject, now time.
 		}
 	}
 	project.TeamID = ""
+	if err := tx.Where("project_id = ?", projection.ID).Delete(&ProjectTeam{}).Error; err != nil {
+		return err
+	}
 	if projection.OrganizationID != "" {
 		var organization GatewayOrganization
 		if err := tx.First(&organization, "id = ?", projection.OrganizationID).Error; err != nil {
@@ -985,10 +994,7 @@ func syncGatewayServingProject(tx *gorm.DB, projection GatewayProject, now time.
 				return err
 			}
 			project.TeamID = teamID
-			if err := tx.Where("project_id = ?", projection.ID).Delete(&ProjectTeam{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Create(&ProjectTeam{ProjectID: projection.ID, TeamID: teamID, Role: "maintainer", CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+			if err := tx.Create(&ProjectTeam{ProjectID: projection.ID, TeamID: teamID, Role: "viewer", CreatedAt: now, UpdatedAt: now}).Error; err != nil {
 				return err
 			}
 		}
