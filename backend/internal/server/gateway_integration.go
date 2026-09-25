@@ -81,6 +81,7 @@ type gatewayProjectionDigestItem struct {
 	WorkloadType   string `json:"workload_type,omitempty"`
 	Environment    string `json:"environment,omitempty"`
 	Status         string `json:"status"`
+	IsPrimary      bool   `json:"is_primary,omitempty"`
 	Version        int64  `json:"version"`
 	Deleted        bool   `json:"deleted"`
 }
@@ -133,6 +134,7 @@ type GatewayPrincipalOrganizationBinding struct {
 	PrincipalID          string `gorm:"index"`
 	OrganizationID       string `gorm:"index"`
 	Status               string `gorm:"index"`
+	IsPrimary            bool   `gorm:"not null;default:false"`
 	Version              int64
 	SyncedAt             time.Time
 	DeletedAt            *time.Time
@@ -440,7 +442,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 	for _, item := range bindings {
 		itemsByType["organization_member"] = append(itemsByType["organization_member"], gatewayProjectionDigestItem{
 			ExternalID: item.ExternalMembershipID, PrincipalID: principalIDs[item.PrincipalID], OrganizationID: organizationIDs[item.OrganizationID],
-			Status: item.Status, Version: item.Version, Deleted: item.DeletedAt != nil,
+			Status: item.Status, IsPrimary: item.IsPrimary, Version: item.Version, Deleted: item.DeletedAt != nil,
 		})
 	}
 
@@ -589,6 +591,11 @@ func validateGatewayIntegrationPayload(event GatewayIntegrationEvent) error {
 			return required("name")
 		}
 	case "organization_member":
+		if value, exists := event.Payload["isPrimary"]; exists {
+			if _, valid := value.(bool); !valid {
+				return NewHTTPError(http.StatusBadRequest, "invalid_integration_event", "Organization primary flag must be a boolean")
+			}
+		}
 		return required("principalExternalId", "organizationExternalId")
 	case "project":
 		if event.EventType == "project.created" {
@@ -869,6 +876,10 @@ func applyGatewayOrganizationBinding(tx *gorm.DB, event GatewayIntegrationEvent,
 	}
 	item.PrincipalID, item.OrganizationID = principal.ID, organization.ID
 	item.Status, item.DeletedAt = projectionStatus(event, item.Status, item.DeletedAt, now)
+	item.IsPrimary, _ = event.Payload["isPrimary"].(bool)
+	if item.Status != StatusActive || item.DeletedAt != nil {
+		item.IsPrimary = false
+	}
 	item.Version, item.SyncedAt = event.Version, now
 	if err := tx.Save(&item).Error; err != nil {
 		return "", "organization_membership", 0, "", err

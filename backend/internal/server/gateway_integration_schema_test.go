@@ -20,10 +20,34 @@ func TestGatewayIntegrationMigrationIsRegistered(t *testing.T) {
 		9:  "add-gateway-managed-users",
 		10: "add-admin-oauth-oidc-nonce",
 		11: "add-gateway-cost-center-projections",
+		12: "add-gateway-organization-primary",
 	} {
 		if registered[version] != name {
 			t.Errorf("migration version %d = %q, want %q", version, registered[version], name)
 		}
+	}
+}
+
+func TestGatewayOrganizationPrimaryMigrationUpgradesLegacySQLiteSchema(t *testing.T) {
+	database, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "legacy-organization-primary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if _, err := database.Exec(`CREATE TABLE gateway_principal_organization_bindings (id text PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := gatewayOrganizationPrimaryMigration().Go(context.Background(), directSQLMigrationExecer{DB: database}); err != nil {
+			t.Fatalf("apply organization primary migration attempt %d: %v", attempt+1, err)
+		}
+	}
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('gateway_principal_organization_bindings') WHERE name = 'is_primary' AND "notnull" = 1`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("gateway organization primary column count = %d, want 1", count)
 	}
 }
 

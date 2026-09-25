@@ -36,6 +36,7 @@ func refreshGatewayManagedUserTeams(tx *gorm.DB, externalPrincipalID string) err
 		return err
 	}
 	managedIDs := map[string]bool{}
+	primaryManagedIDs := map[string]bool{}
 	now := time.Now().UTC()
 	for _, principal := range principals {
 		var tenant GatewayTenant
@@ -62,6 +63,9 @@ func refreshGatewayManagedUserTeams(tx *gorm.DB, externalPrincipalID string) err
 				return err
 			}
 			managedIDs[teamID] = true
+			if binding.IsPrimary {
+				primaryManagedIDs[teamID] = true
+			}
 		}
 	}
 	managedTeams := make([]string, 0, len(managedIDs))
@@ -76,11 +80,17 @@ func refreshGatewayManagedUserTeams(tx *gorm.DB, externalPrincipalID string) err
 		}
 	}
 	primary := user.TeamID
-	if isGatewayManagedTeamID(primary) && !managedIDs[primary] {
+	if isGatewayManagedTeamID(primary) {
 		primary = ""
 	}
-	if primary == "" && len(managedTeams) == 1 && len(localTeams) == 0 {
-		primary = managedTeams[0]
+	if primary == "" {
+		if len(primaryManagedIDs) == 1 {
+			for teamID := range primaryManagedIDs {
+				primary = teamID
+			}
+		} else if len(primaryManagedIDs) == 0 && len(managedTeams) == 1 && len(localTeams) == 0 {
+			primary = managedTeams[0]
+		}
 	}
 	teamIDs := normalizedTeamIDs(primary, append(localTeams, managedTeams...))
 	if user.TeamID == primary && slices.Equal(user.TeamIDs, teamIDs) {
