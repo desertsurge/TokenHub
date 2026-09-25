@@ -10,7 +10,7 @@ import (
 type GatewayIntegrationDependencyReadiness struct {
 	Ready          bool   `json:"ready"`
 	TenantID       string `json:"tenant_id"`
-	ProjectID      string `json:"project_id"`
+	ProjectID      string `json:"project_id,omitempty"`
 	PrincipalType  string `json:"principal_type"`
 	PrincipalID    string `json:"principal_id"`
 	DependencyCode string `json:"dependency_code,omitempty"`
@@ -30,8 +30,8 @@ func (s *Server) handleGatewayIntegrationDependencies(w http.ResponseWriter, r *
 		PrincipalType:       strings.TrimSpace(r.URL.Query().Get("principal_type")),
 		PrincipalExternalID: strings.TrimSpace(r.URL.Query().Get("principal_id")),
 	}
-	if input.TenantExternalID == "" || input.ProjectExternalID == "" || input.PrincipalType == "" || input.PrincipalExternalID == "" {
-		writeError(w, r, NewHTTPError(http.StatusBadRequest, "invalid_integration_dependency_query", "tenant_id, project_id, principal_type, and principal_id are required"))
+	if input.TenantExternalID == "" || input.PrincipalType == "" || input.PrincipalExternalID == "" || (input.ProjectExternalID == "" && input.PrincipalType != "user") {
+		writeError(w, r, NewHTTPError(http.StatusBadRequest, "invalid_integration_dependency_query", "tenant_id, principal_type, and principal_id are required; project_id is required for non-user principals"))
 		return
 	}
 	readiness, err := s.store.CheckGatewayIntegrationDependencies(input)
@@ -52,11 +52,35 @@ func (s *GormStore) CheckGatewayIntegrationDependencies(input GatewayModelAccess
 		PrincipalType: input.PrincipalType, PrincipalID: input.PrincipalExternalID,
 	}
 	err := s.withReadSnapshot(func(tx *gorm.DB) error {
-		tenant, project, err := resolveGatewayModelAccessKeyScope(tx, input)
-		if err != nil {
-			return err
+		if input.ProjectExternalID != "" {
+			tenant, project, err := resolveGatewayModelAccessKeyScope(tx, input)
+			if err != nil {
+				return err
+			}
+			if err := validateGatewayModelAccessKeyPrincipal(tx, tenant, project, input); err != nil {
+				return err
+			}
+		} else {
+			var tenant GatewayTenant
+			if err := tx.First(&tenant, "external_tenant_id = ? AND status = ?", input.TenantExternalID, StatusActive).Error; err != nil {
+				return NewHTTPError(http.StatusConflict, "gateway_tenant_unavailable", "Gateway tenant projection is not active")
+			}
+			var principal GatewayPrincipal
+			if err := tx.First(&principal, "tenant_id = ? AND external_principal_id = ? AND status = ?", tenant.ID, input.PrincipalExternalID, StatusActive).Error; err != nil {
+				return NewHTTPError(http.StatusConflict, "gateway_principal_unavailable", "Gateway principal projection is not active")
+			}
 		}
-		return validateGatewayModelAccessKeyPrincipal(tx, tenant, project, input)
+		if input.PrincipalType == "user" {
+			var managed GatewayManagedUser
+			if err := tx.First(&managed, "external_principal_id = ?", input.PrincipalExternalID).Error; err != nil {
+				return NewHTTPError(http.StatusConflict, "gateway_user_unavailable", "Managed gateway user is not available")
+			}
+			var user AdminUser
+			if err := tx.First(&user, "id = ? AND status = ?", managed.AdminUserID, StatusActive).Error; err != nil {
+				return NewHTTPError(http.StatusConflict, "gateway_user_unavailable", "Managed gateway user is not active")
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		readiness.DependencyCode = httpErrorCode(err)
