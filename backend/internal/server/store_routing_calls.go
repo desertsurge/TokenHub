@@ -693,7 +693,8 @@ func (s *GormStore) finishCallTransaction(tx *gorm.DB, call CallContext, route R
 		}
 	}
 	if usage.TotalTokens > 0 || usage.CostUSD > 0 {
-		if err := tx.Create(newUsageRecord(call, route, usage, now)).Error; err != nil {
+		costCenter := s.costCenterForProjectWithDB(tx, call.Project)
+		if err := tx.Create(newUsageRecord(call, route, usage, costCenter, now)).Error; err != nil {
 			return err
 		}
 	}

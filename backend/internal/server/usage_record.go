@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func newUsageRecord(call CallContext, route RouteSelection, usage Usage, createdAt time.Time) *UsageRecord {
+func newUsageRecord(call CallContext, route RouteSelection, usage Usage, costCenter string, createdAt time.Time) *UsageRecord {
 	attributedUserID := strings.TrimSpace(call.AttributedUserID)
 	if attributedUserID == "" {
 		attributedUserID = usageAttributionUserID(call.Key, call.Project)
@@ -14,6 +14,7 @@ func newUsageRecord(call CallContext, route RouteSelection, usage Usage, created
 		ID:                       NewID("use"),
 		RequestID:                call.RequestID,
 		ProjectID:                call.Project.ID,
+		CostCenterSnapshot:       &costCenter,
 		APIKeyID:                 call.Key.ID,
 		AttributedUserID:         attributedUserID,
 		ModelName:                call.Model.Name,

@@ -69,6 +69,8 @@ When issuing an API Key, select the actual user in **Owner User**. The issuer re
 
 Each new usage record snapshots the attributed user, so later ownership changes or Key deletion do not rewrite that recorded history. Records created before this field existed use only attribution that can be proven from their immutable usage record or request history; otherwise they remain `unknown`. Legacy quota buckets are retained as unattributed canonical history and are never silently assigned to the current owner during upgrade. The individual ranking shows distinct used Keys and currently owned non-revoked Keys separately.
 
+New usage records also snapshot the resolved cost center at request time. Cost-center breakdowns, enforced budget totals, and regenerated chargebacks use that snapshot even if the project, team, or quota policy changes later. Older records have no cost-center snapshot and retain the legacy current-project fallback; their historical cost center cannot be proven or automatically backfilled.
+
 The per-Key **Usage** page uses the saved Key ID as an exact boundary for trends, model and error breakdowns, and request details. Rotation links are informational and do not combine predecessor and successor usage. Its current day and month Key quota cards use UTC buckets and resolve the same global, project, team, and Key limits used for the gateway's per-Key admission checks. Aggregate user quotas are enforced separately and are not included in this per-Key view. Platform administrators additionally receive Provider and Resource performance breakdowns; other roles retain the existing scoped request-detail visibility, and Provider cost remains restricted to platform administrators.
 
 ## Daily Usage Dashboard

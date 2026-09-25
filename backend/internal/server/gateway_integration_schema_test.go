@@ -185,3 +185,27 @@ func TestGatewayCostCenterMigrationUpgradesLegacySQLiteSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageCostCenterSnapshotMigrationUpgradesLegacySQLiteSchema(t *testing.T) {
+	database, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "legacy-usage.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if _, err := database.Exec(`CREATE TABLE usage_records (id text PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	migration := usageCostCenterSnapshotMigration()
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := migration.Go(context.Background(), directSQLMigrationExecer{DB: database}); err != nil {
+			t.Fatalf("apply usage cost center migration attempt %d: %v", attempt+1, err)
+		}
+	}
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('usage_records') WHERE name = 'cost_center_snapshot'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("usage_records.cost_center_snapshot count = %d, want 1", count)
+	}
+}

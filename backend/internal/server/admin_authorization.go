@@ -295,6 +295,9 @@ func (s *Server) usageBreakdownFromRecords(records []UsageRecord, projectsByID m
 			return record.ProviderResourceID
 		}),
 		"cost_centers": aggregateUsage(records, func(record UsageRecord) string {
+			if record.CostCenterSnapshot != nil {
+				return *record.CostCenterSnapshot
+			}
 			return costCentersByProjectID[record.ProjectID]
 		}),
 	}

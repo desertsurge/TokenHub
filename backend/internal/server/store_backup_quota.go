@@ -903,8 +903,9 @@ func (t runtimeBudgetTotals) forScope(scope string) float64 {
 
 // projectPeriodCost is one row of the per-project spend aggregate.
 type projectPeriodCost struct {
-	ProjectID string
-	Total     float64
+	ProjectID          string
+	CostCenterSnapshot *string
+	Total              float64
 }
 
 // checkRuntimeBudget rejects the call when an enforced budget covering this
@@ -1033,7 +1034,7 @@ func (s *GormStore) aggregateRuntimeBudgetTotals(tx *gorm.DB, period string, pro
 		query = query.Where("project_id = ?", project.ID)
 	}
 	var rows []projectPeriodCost
-	if err := query.Select("project_id, COALESCE(SUM(cost_usd), 0) AS total").Group("project_id").Scan(&rows).Error; err != nil {
+	if err := query.Select("project_id, cost_center_snapshot, COALESCE(SUM(cost_usd), 0) AS total").Group("project_id, cost_center_snapshot").Scan(&rows).Error; err != nil {
 		return runtimeBudgetTotals{}, err
 	}
 	var projectsByID map[string]Project
@@ -1057,17 +1058,21 @@ func (s *GormStore) aggregateRuntimeBudgetTotals(tx *gorm.DB, period string, pro
 		if !scopes.team && !scopes.costCenter {
 			continue
 		}
-		// Usage left behind by a deleted project belongs to no team and no cost
-		// center, which is what the per-record project lookup used to decide.
 		rowProject, ok := projectsByID[row.ProjectID]
-		if !ok {
+		if !ok && row.CostCenterSnapshot == nil {
 			continue
 		}
-		if scopes.team && rowProject.TeamID == project.TeamID {
+		if scopes.team && ok && rowProject.TeamID == project.TeamID {
 			totals.team += row.Total
 		}
-		if scopes.costCenter && costCenterForProject(rowProject, teamsByID, quotasByID) == costCenter {
-			totals.costCenter += row.Total
+		if scopes.costCenter {
+			rowCostCenter := costCenterForProject(rowProject, teamsByID, quotasByID)
+			if row.CostCenterSnapshot != nil {
+				rowCostCenter = *row.CostCenterSnapshot
+			}
+			if rowCostCenter == costCenter {
+				totals.costCenter += row.Total
+			}
 		}
 	}
 	return totals, nil

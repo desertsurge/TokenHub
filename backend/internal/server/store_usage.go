@@ -95,6 +95,9 @@ func (s *GormStore) GenerateBillingPeriod(period string) (map[string]any, error)
 	for _, record := range records {
 		project, _ := s.GetProject(record.ProjectID)
 		costCenter := s.costCenterForProject(project)
+		if record.CostCenterSnapshot != nil {
+			costCenter = *record.CostCenterSnapshot
+		}
 		key := costCenter + "\x00" + record.ProjectID
 		item, ok := buckets[key]
 		if !ok {
