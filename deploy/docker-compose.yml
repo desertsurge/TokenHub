@@ -112,6 +112,7 @@ services:
     stop_grace_period: ${TOKENHUB_STOP_GRACE_PERIOD:-180s}
     networks:
       - tokenhub
+      - tokenhub-database
 
 volumes:
   tokenhub-data:
@@ -124,3 +125,6 @@ volumes:
 networks:
   tokenhub:
     name: tokenhub
+  tokenhub-database:
+    name: ${TOKENHUB_POSTGRES_NETWORK:-tokenhub-database}
+    external: ${TOKENHUB_POSTGRES_NETWORK_EXTERNAL:-false}

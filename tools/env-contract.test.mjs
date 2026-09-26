@@ -306,5 +306,7 @@ describe("Compose database fallback", () => {
     ]) {
       assert.ok(compose.includes(`${name}: $` + `{${name}`), `${name} is missing from base Compose`);
     }
+    assert.ok(compose.includes("name: ${TOKENHUB_POSTGRES_NETWORK:-"), "TOKENHUB_POSTGRES_NETWORK is missing from base Compose");
+    assert.ok(compose.includes("external: ${TOKENHUB_POSTGRES_NETWORK_EXTERNAL:-"), "TOKENHUB_POSTGRES_NETWORK_EXTERNAL is missing from base Compose");
   });
 });
