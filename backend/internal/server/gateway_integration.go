@@ -59,6 +59,7 @@ type GatewayIntegrationReconciliationSummary struct {
 	ReceivedEvents      int64                                             `json:"received_events"`
 	AggregateCounts     map[string]int64                                  `json:"aggregate_counts"`
 	ProjectionSummaries map[string]GatewayProjectionReconciliationSummary `json:"projection_summaries"`
+	ProjectionDetails   map[string][]gatewayProjectionDigestItem          `json:"projection_details,omitempty"`
 	LatestReceivedAt    *time.Time                                        `json:"latest_received_at"`
 	LatestProcessedAt   *time.Time                                        `json:"latest_processed_at"`
 }
@@ -262,7 +263,14 @@ func (s *Server) handleGatewayIntegrationReconciliation(w http.ResponseWriter, r
 		writeError(w, r, NewHTTPError(http.StatusBadRequest, "invalid_tenant_scope", "tenant_id is required"))
 		return
 	}
-	summary, err := s.store.GetGatewayIntegrationReconciliation(tenantID)
+	includeDetails := r.URL.Query().Get("include_details") == "1"
+	var summary GatewayIntegrationReconciliationSummary
+	var err error
+	if includeDetails {
+		summary, err = s.store.GetGatewayIntegrationReconciliationWithDetails(tenantID)
+	} else {
+		summary, err = s.store.GetGatewayIntegrationReconciliation(tenantID)
+	}
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -343,6 +351,14 @@ func (s *GormStore) ApplyGatewayIntegrationEvent(event GatewayIntegrationEvent) 
 }
 
 func (s *GormStore) GetGatewayIntegrationReconciliation(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error) {
+	return s.getGatewayIntegrationReconciliation(tenantExternalID, false)
+}
+
+func (s *GormStore) GetGatewayIntegrationReconciliationWithDetails(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error) {
+	return s.getGatewayIntegrationReconciliation(tenantExternalID, true)
+}
+
+func (s *GormStore) getGatewayIntegrationReconciliation(tenantExternalID string, includeDetails bool) (GatewayIntegrationReconciliationSummary, error) {
 	tenantID := strings.TrimSpace(tenantExternalID)
 	if tenantID == "" {
 		return GatewayIntegrationReconciliationSummary{}, NewHTTPError(http.StatusBadRequest, "invalid_tenant_scope", "tenant_id is required")
@@ -381,15 +397,18 @@ func (s *GormStore) GetGatewayIntegrationReconciliation(tenantExternalID string)
 	} else if err == nil {
 		summary.LatestProcessedAt = processed.ProcessedAt
 	}
-	projectionSummaries, err := s.gatewayProjectionReconciliation(tenantID)
+	projectionSummaries, projectionDetails, err := s.gatewayProjectionReconciliation(tenantID)
 	if err != nil {
 		return GatewayIntegrationReconciliationSummary{}, err
 	}
 	summary.ProjectionSummaries = projectionSummaries
+	if includeDetails {
+		summary.ProjectionDetails = projectionDetails
+	}
 	return summary, nil
 }
 
-func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (map[string]GatewayProjectionReconciliationSummary, error) {
+func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (map[string]GatewayProjectionReconciliationSummary, map[string][]gatewayProjectionDigestItem, error) {
 	itemsByType := map[string][]gatewayProjectionDigestItem{
 		"tenant": {}, "organization": {}, "tenant_member": {},
 		"organization_member": {}, "project": {}, "workload": {},
@@ -398,9 +417,9 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 	var tenant GatewayTenant
 	if err := s.db.First(&tenant, "external_tenant_id = ?", tenantExternalID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return gatewayProjectionSummaries(itemsByType), nil
+			return gatewayProjectionSummaries(itemsByType), itemsByType, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	itemsByType["tenant"] = append(itemsByType["tenant"], gatewayProjectionDigestItem{
 		ExternalID: tenant.ExternalTenantID, Name: tenant.Name, Status: tenant.Status,
@@ -409,7 +428,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 
 	var organizations []GatewayOrganization
 	if err := s.db.Where("tenant_id = ?", tenant.ID).Find(&organizations).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	organizationIDs := make(map[string]string, len(organizations))
 	for _, item := range organizations {
@@ -424,7 +443,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 
 	var principals []GatewayPrincipal
 	if err := s.db.Where("tenant_id = ?", tenant.ID).Find(&principals).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	principalIDs := make(map[string]string, len(principals))
 	for _, item := range principals {
@@ -437,7 +456,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 
 	var bindings []GatewayPrincipalOrganizationBinding
 	if err := s.db.Where("tenant_id = ?", tenant.ID).Find(&bindings).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, item := range bindings {
 		itemsByType["organization_member"] = append(itemsByType["organization_member"], gatewayProjectionDigestItem{
@@ -448,7 +467,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 
 	var projects []GatewayProject
 	if err := s.db.Where("tenant_id = ?", tenant.ID).Find(&projects).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	projectIDs := make(map[string]string, len(projects))
 	for _, item := range projects {
@@ -457,7 +476,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 		if item.CostCenterID != "" {
 			var costCenter GatewayCostCenter
 			if err := s.db.First(&costCenter, "id = ?", item.CostCenterID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, err
+				return nil, nil, err
 			} else if err == nil {
 				costCenterExternalID = costCenter.ExternalCostCenterID
 			}
@@ -471,7 +490,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 
 	var costCenters []GatewayCostCenter
 	if err := s.db.Where("tenant_id = ?", tenant.ID).Find(&costCenters).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, item := range costCenters {
 		itemsByType["cost_center"] = append(itemsByType["cost_center"], gatewayProjectionDigestItem{
@@ -482,7 +501,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 
 	var organizationCostCenters []GatewayOrganizationCostCenter
 	if err := s.db.Where("tenant_id = ?", tenant.ID).Find(&organizationCostCenters).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	costCenterIDs := make(map[string]string, len(costCenters))
 	for _, item := range costCenters {
@@ -497,7 +516,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 
 	var workloads []GatewayWorkload
 	if err := s.db.Where("tenant_id = ?", tenant.ID).Find(&workloads).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, item := range workloads {
 		itemsByType["workload"] = append(itemsByType["workload"], gatewayProjectionDigestItem{
@@ -506,7 +525,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 			Status: item.Status, Version: item.Version, Deleted: item.DeletedAt != nil,
 		})
 	}
-	return gatewayProjectionSummaries(itemsByType), nil
+	return gatewayProjectionSummaries(itemsByType), itemsByType, nil
 }
 
 func gatewayProjectionSummaries(itemsByType map[string][]gatewayProjectionDigestItem) map[string]GatewayProjectionReconciliationSummary {

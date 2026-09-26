@@ -115,6 +115,7 @@ type Store interface {
 	IsGatewayManagedAdminUser(userID string) bool
 	ResolveGatewayManagedOIDCUser(principalID, tenantExternalID, issuer, subject string) (AdminUser, error)
 	GetGatewayIntegrationReconciliation(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error)
+	GetGatewayIntegrationReconciliationWithDetails(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error)
 	CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreateInput) (GatewayModelAccessKeyCreateResult, error)
 	CheckGatewayIntegrationDependencies(input GatewayModelAccessKeyCreateInput) (GatewayIntegrationDependencyReadiness, error)
 	ListGatewayModelAccessKeys(filter GatewayModelAccessKeyFilter) (GatewayModelAccessKeyPage, error)
