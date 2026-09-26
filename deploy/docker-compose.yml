@@ -33,7 +33,18 @@ services:
       TOKENHUB_INTEGRATION_TOKEN: ${TOKENHUB_INTEGRATION_TOKEN:-change-me-tokenhub-integration-token}
       TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD: ${TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD:-change-me-tokenhub-admin-password}
       TOKENHUB_SECRET_KEY: ${TOKENHUB_SECRET_KEY:-change-me-tokenhub-secret-key}
-      TOKENHUB_DATABASE_URL: ${TOKENHUB_DATABASE_URL:-sqlite:///app/data/tokenhub.db}
+      # Use TOKENHUB_DATABASE_URL when provided; otherwise the application can
+      # build a DSN from TOKENHUB_DB_* fields without URL-encoding passwords.
+      TOKENHUB_DATABASE_URL: ${TOKENHUB_DATABASE_URL:-}
+      TOKENHUB_DB_HOST: ${TOKENHUB_DB_HOST:-}
+      TOKENHUB_DB_PORT: ${TOKENHUB_DB_PORT:-5432}
+      TOKENHUB_DB_USER: ${TOKENHUB_DB_USER:-}
+      TOKENHUB_DB_PASSWORD: ${TOKENHUB_DB_PASSWORD:-}
+      TOKENHUB_DB_NAME: ${TOKENHUB_DB_NAME:-}
+      TOKENHUB_DB_SSLMODE: ${TOKENHUB_DB_SSLMODE:-disable}
+      TOKENHUB_DB_MAX_OPEN_CONNS: ${TOKENHUB_DB_MAX_OPEN_CONNS:-25}
+      TOKENHUB_DB_MAX_IDLE_CONNS: ${TOKENHUB_DB_MAX_IDLE_CONNS:-5}
+      TOKENHUB_DB_CONN_MAX_LIFETIME_MINUTES: ${TOKENHUB_DB_CONN_MAX_LIFETIME_MINUTES:-30}
       TOKENHUB_SQLITE_BACKUP_DIR: /app/data/backups
       TOKENHUB_MODEL_CATALOG_FILE: /opt/tokenhub/current/catalog/model-catalog.yaml
       TOKENHUB_PROVIDER_CATALOG_FILE: /opt/tokenhub/current/catalog/provider-catalog.json

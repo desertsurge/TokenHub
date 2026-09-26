@@ -291,3 +291,20 @@ describe("KNOWN_CONSUMERS", () => {
     });
   }
 });
+
+describe("Compose database fallback", () => {
+  it("passes the DB field fallback through the base service", () => {
+    const compose = readFileSync(join(REPOSITORY_ROOT, "deploy/docker-compose.yml"), "utf8");
+    for (const name of [
+      "TOKENHUB_DATABASE_URL",
+      "TOKENHUB_DB_HOST",
+      "TOKENHUB_DB_PORT",
+      "TOKENHUB_DB_USER",
+      "TOKENHUB_DB_PASSWORD",
+      "TOKENHUB_DB_NAME",
+      "TOKENHUB_DB_SSLMODE",
+    ]) {
+      assert.ok(compose.includes(`${name}: $` + `{${name}`), `${name} is missing from base Compose`);
+    }
+  });
+});
