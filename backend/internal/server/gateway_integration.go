@@ -538,13 +538,27 @@ func gatewayProjectionSummaries(itemsByType map[string][]gatewayProjectionDigest
 				maxVersion = item.Version
 			}
 		}
-		payload, _ := json.Marshal(items)
+		payload := canonicalGatewayProjectionDigest(items)
 		digest := sha256.Sum256(payload)
 		summaries[aggregateType] = GatewayProjectionReconciliationSummary{
 			Count: int64(len(items)), MaxVersion: maxVersion, Digest: hex.EncodeToString(digest[:]),
 		}
 	}
 	return summaries
+}
+
+func canonicalGatewayProjectionDigest(items []gatewayProjectionDigestItem) []byte {
+	canonical := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		encoded, _ := json.Marshal(item)
+		var value map[string]any
+		if err := json.Unmarshal(encoded, &value); err != nil {
+			value = map[string]any{}
+		}
+		canonical = append(canonical, value)
+	}
+	encoded, _ := json.Marshal(canonical)
+	return encoded
 }
 
 func validateGatewayIntegrationEvent(event GatewayIntegrationEvent) error {

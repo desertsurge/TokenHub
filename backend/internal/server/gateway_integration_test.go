@@ -25,6 +25,16 @@ func gatewayIntegrationEvent(eventID string, eventType string, aggregateType str
 	}
 }
 
+func TestGatewayProjectionDigestUsesCanonicalJSON(t *testing.T) {
+	items := map[string][]gatewayProjectionDigestItem{
+		"tenant": {{ExternalID: "tenant-1", Name: "Tenant", Status: StatusActive, Version: 1}},
+	}
+	summary := gatewayProjectionSummaries(items)["tenant"]
+	if summary.Digest != "923dcea217212ad1ba598e1a44aba991072aba128c28ee6299e00070a3d6350b" {
+		t.Fatalf("unexpected canonical projection digest: %s", summary.Digest)
+	}
+}
+
 func TestGatewayIntegrationEndpointRequiresDedicatedToken(t *testing.T) {
 	store := NewMemoryStore()
 	app := NewWithConfig(store, Config{
