@@ -1045,6 +1045,11 @@ func syncGatewayServingProject(tx *gorm.DB, projection GatewayProject, now time.
 		}
 	}
 	project.TeamID = ""
+	// Persist the parent row before creating project_teams. PostgreSQL enforces
+	// the project_teams foreign key immediately for newly projected projects.
+	if err := tx.Save(&project).Error; err != nil {
+		return err
+	}
 	if err := tx.Where("project_id = ?", projection.ID).Delete(&ProjectTeam{}).Error; err != nil {
 		return err
 	}
