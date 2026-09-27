@@ -242,6 +242,9 @@ func (s *Server) handleGatewayIntegrationEvent(w http.ResponseWriter, r *http.Re
 		writeError(w, r, NewHTTPError(http.StatusBadRequest, "invalid_integration_event", "Invalid integration event"))
 		return
 	}
+	if !s.requireGatewayIntegrationTenant(w, r, event.TenantID) {
+		return
+	}
 	result, err := s.store.ApplyGatewayIntegrationEvent(event)
 	if err != nil {
 		writeError(w, r, err)
@@ -261,6 +264,9 @@ func (s *Server) handleGatewayIntegrationReconciliation(w http.ResponseWriter, r
 	tenantID := strings.TrimSpace(r.URL.Query().Get("tenant_id"))
 	if tenantID == "" {
 		writeError(w, r, NewHTTPError(http.StatusBadRequest, "invalid_tenant_scope", "tenant_id is required"))
+		return
+	}
+	if !s.requireGatewayIntegrationTenant(w, r, tenantID) {
 		return
 	}
 	includeDetails := r.URL.Query().Get("include_details") == "1"
@@ -286,6 +292,32 @@ func (s *Server) requireGatewayIntegrationToken(w http.ResponseWriter, r *http.R
 		return false
 	}
 	return true
+}
+
+func (s *Server) requireGatewayIntegrationTenant(w http.ResponseWriter, r *http.Request, tenantID string) bool {
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		writeError(w, r, NewHTTPError(http.StatusBadRequest, "invalid_tenant_scope", "tenant_id is required"))
+		return false
+	}
+	secret := strings.TrimSpace(s.config.IntegrationContextSecret)
+	if secret == "" {
+		return true
+	}
+	providedTenant := strings.TrimSpace(r.Header.Get("X-Integration-Tenant-Id"))
+	providedSignature := strings.TrimSpace(r.Header.Get("X-Integration-Tenant-Signature"))
+	if providedTenant != tenantID || providedSignature == "" ||
+		!hmac.Equal([]byte(providedSignature), []byte(gatewayIntegrationTenantSignature(secret, r.Method, r.URL.Path, tenantID))) {
+		writeError(w, r, NewHTTPError(http.StatusUnauthorized, "invalid_integration_context", "Integration tenant context is invalid"))
+		return false
+	}
+	return true
+}
+
+func gatewayIntegrationTenantSignature(secret, method, path, tenantID string) string {
+	digest := hmac.New(sha256.New, []byte(secret))
+	_, _ = digest.Write([]byte(strings.ToUpper(strings.TrimSpace(method)) + "\n" + path + "\n" + strings.TrimSpace(tenantID)))
+	return hex.EncodeToString(digest.Sum(nil))
 }
 
 func (s *GormStore) ApplyGatewayIntegrationEvent(event GatewayIntegrationEvent) (GatewayIntegrationApplyResult, error) {

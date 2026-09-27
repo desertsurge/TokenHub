@@ -174,6 +174,7 @@ cp deploy/.env.example deploy/.env
 
 - `TOKENHUB_ADMIN_TOKEN`: 任意の Admin API 静的 Token。運用自動化で必要な場合は 32 バイト以上のランダム値を設定し、不要な場合はプレースホルダーのままにして無効化します。
 - `TOKENHUB_INTEGRATION_TOKEN`: 任意の外部プラットフォーム連携イベントおよびモデルアクセスキー制御 API 専用認証情報。連携 API を有効にする場合は 32 バイト以上のランダム値を設定します。
+- `TOKENHUB_INTEGRATION_CONTEXT_SECRET`: テナント単位の連携リクエストを検証する独立した署名キーです。外部連携サービスと同じランダム値を設定し、送信側の署名対応を先にデプロイしてください。本番環境で連携 Token を有効にする場合は 32 バイト以上が必要です。
 - `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`: 任意の初期 `admin` パスワード。12 バイト以上の値を設定するか、プレースホルダーのままにして TokenHub に生成させます。
 - `TOKENHUB_SECRET_KEY`: バックエンド暗号化ルートキー。PostgreSQL と既存の SQLite データベースでは、32 バイト以上の安定した値が必須です。新規のファイル型 SQLite デプロイでは、プレースホルダーのままにするとデータベースの隣に権限 `0600` のキーファイルを生成します。
 - `TOKENHUB_IMAGE_TAG`: 管理対象 TokenHub イメージのタグ。デフォルトは `latest`。
@@ -382,6 +383,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_CORS_ALLOWED_ORIGINS` | 公開 URL | バックエンドを呼び出せる正確なブラウザー Origin（カンマ区切り）。設定時は同じ一覧が OAuth コンソールの戻り先 Origin の完全一致 allowlist にもなります。各値には scheme、host、任意の port だけを含め、path は含めません |
 | `TOKENHUB_ADMIN_TOKEN` | `change-me-tokenhub-admin-token` | 任意の Admin API 静的 Token。既知のプレースホルダーは無効化を意味します |
 | `TOKENHUB_INTEGRATION_TOKEN` | `change-me-tokenhub-integration-token` | 任意の外部プラットフォーム連携イベントおよびモデルアクセスキー制御 API 専用 Token |
+| `TOKENHUB_INTEGRATION_CONTEXT_SECRET` | `change-me-tokenhub-integration-context-secret` | 連携リクエストの独立したテナントコンテキスト署名キー |
 | `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD` | `change-me-tokenhub-admin-password` | 任意の初期 `admin` パスワード。既知のプレースホルダーは初回起動時のランダム生成を意味します |
 | `TOKENHUB_SECRET_KEY` | `change-me-tokenhub-secret-key` | 安定した暗号化ルートキー。新規のファイル型 SQLite データベースでのみ自動生成できます |
 | `TOKENHUB_DATABASE_URL` | `sqlite:///app/data/tokenhub.db` | コンテナ内 SQLite データベースパス |

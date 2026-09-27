@@ -68,6 +68,9 @@ func (s *Server) handleGatewayUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
+	if !s.requireGatewayIntegrationTenant(w, r, query.Get("tenant_id")) {
+		return
+	}
 	dateFrom, err := optionalRFC3339(query.Get("date_from"))
 	if err != nil || dateFrom == nil {
 		writeError(w, r, NewHTTPError(http.StatusBadRequest, "invalid_usage_query", "Date from is required and must be RFC3339"))

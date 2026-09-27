@@ -58,6 +58,9 @@ func (s *Server) handleGatewayRequestLogs(w http.ResponseWriter, r *http.Request
 		return
 	}
 	query := r.URL.Query()
+	if !s.requireGatewayIntegrationTenant(w, r, query.Get("tenant_id")) {
+		return
+	}
 	page, err := positiveQueryInt(query.Get("page"), 1, 10_000)
 	if err != nil {
 		writeError(w, r, NewHTTPError(http.StatusBadRequest, "invalid_request_log_query", "Page is invalid"))

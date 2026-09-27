@@ -590,6 +590,7 @@ TOKENHUB_RELEASE_REPOSITORY=${GITHUB_REPOSITORY}
 TOKENHUB_CORS_ALLOWED_ORIGINS=${allowed_origins}
 TOKENHUB_ADMIN_TOKEN=${admin_token}
 TOKENHUB_INTEGRATION_TOKEN=${integration_token}
+TOKENHUB_INTEGRATION_CONTEXT_SECRET=$(random_hex 32)
 TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=${GENERATED_ADMIN_PASSWORD}
 TOKENHUB_SECRET_KEY=${secret_key}
 TOKENHUB_DATABASE_URL=${database_url}
@@ -619,6 +620,17 @@ ensure_integration_token_config() {
   fi
   printf '\nTOKENHUB_INTEGRATION_TOKEN=%s\n' "$(random_hex 32)" >>"$env_file"
   info "Added a dedicated integration token to $env_file"
+}
+
+ensure_integration_context_secret_config() {
+  local env_file="$CONFIG_DIR/tokenhub.env"
+  local configured
+  configured="$(read_config_value "$env_file" TOKENHUB_INTEGRATION_CONTEXT_SECRET)"
+  if [ -n "$configured" ]; then
+    return
+  fi
+  printf '\nTOKENHUB_INTEGRATION_CONTEXT_SECRET=%s\n' "$(random_hex 32)" >>"$env_file"
+  info "Added an integration tenant context secret to $env_file"
 }
 
 ensure_public_host_config() {
@@ -1021,6 +1033,7 @@ install_or_upgrade() {
   prepare_directories
   write_initial_config
   ensure_integration_token_config
+  ensure_integration_context_secret_config
   ensure_public_host_config
   ensure_persistent_image_storage_config
   record_created_service_user

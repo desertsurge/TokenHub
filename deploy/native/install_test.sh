@@ -521,6 +521,7 @@ EOF
   sed -i '/^TOKENHUB_IMAGE_STORAGE_DIR=/d' "$config_dir/tokenhub.env"
   sed -i '/^TOKENHUB_PUBLIC_HOST=/d' "$config_dir/tokenhub.env"
   sed -i '/^TOKENHUB_INTEGRATION_TOKEN=/d' "$config_dir/tokenhub.env"
+  sed -i '/^TOKENHUB_INTEGRATION_CONTEXT_SECRET=/d' "$config_dir/tokenhub.env"
   env -u TOKENHUB_RELEASE_REPOSITORY "${installer_env[@]}" \
     bash "$script_dir/install.sh" upgrade --version 0.3.3
   grep -q '^TOKENHUB_TEST_MARKER=preserved$' "$config_dir/tokenhub.env" ||
@@ -532,6 +533,9 @@ EOF
   migrated_integration_token="$(read_config_value "$config_dir/tokenhub.env" TOKENHUB_INTEGRATION_TOKEN)"
   [ "${#migrated_integration_token}" -eq 64 ] || fail_test "integration upgrade did not add a 32-byte integration token"
   [ "$migrated_integration_token" != "$admin_token" ] || fail_test "integration upgrade reused the admin token for integration"
+  migrated_integration_context_secret="$(read_config_value "$config_dir/tokenhub.env" TOKENHUB_INTEGRATION_CONTEXT_SECRET)"
+  [ "${#migrated_integration_context_secret}" -eq 64 ] || fail_test "integration upgrade did not add a 32-byte tenant context secret"
+  [ "$migrated_integration_context_secret" != "$migrated_integration_token" ] || fail_test "integration upgrade reused the integration token for tenant context signing"
 
   sed -i 's/^TOKENHUB_FRONTEND_PORT=.*/TOKENHUB_FRONTEND_PORT=23000/' "$config_dir/tokenhub.env"
   : >"$test_root/curl.log"
@@ -544,6 +548,8 @@ EOF
     fail_test "integration upgrade did not activate v0.3.4"
   [ "$(read_config_value "$config_dir/tokenhub.env" TOKENHUB_INTEGRATION_TOKEN)" = "$migrated_integration_token" ] ||
     fail_test "integration upgrade replaced the existing integration token"
+  [ "$(read_config_value "$config_dir/tokenhub.env" TOKENHUB_INTEGRATION_CONTEXT_SECRET)" = "$migrated_integration_context_secret" ] ||
+    fail_test "integration upgrade replaced the existing tenant context secret"
   grep -q 'http://127.0.0.1:23000/' "$test_root/curl.log" ||
     fail_test "integration upgrade did not probe the configured frontend port"
   [[ "$upgrade_output" == *"Admin console: http://127.0.0.1:23000"* ]] ||

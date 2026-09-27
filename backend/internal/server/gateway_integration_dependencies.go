@@ -34,6 +34,9 @@ func (s *Server) handleGatewayIntegrationDependencies(w http.ResponseWriter, r *
 		writeError(w, r, NewHTTPError(http.StatusBadRequest, "invalid_integration_dependency_query", "tenant_id, principal_type, and principal_id are required; project_id is required for non-user principals"))
 		return
 	}
+	if !s.requireGatewayIntegrationTenant(w, r, input.TenantExternalID) {
+		return
+	}
 	readiness, err := s.store.CheckGatewayIntegrationDependencies(input)
 	if err != nil {
 		if httpErr := AsHTTPError(err); httpErr.Code == "integration_dependency_pending" {

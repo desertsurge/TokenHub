@@ -290,6 +290,9 @@ func validateOIDCClaims(claims map[string]any, issuer string, clientID string, e
 	if !oidcAudienceContains(claims["aud"], clientID) {
 		return NewHTTPError(http.StatusForbidden, "oidc_audience_mismatch", "Managed OIDC audience does not match the configured client")
 	}
+	if oidcAudienceIsMultiple(claims["aud"]) && strings.TrimSpace(firstOAuthClaim(claims, "azp")) != strings.TrimSpace(clientID) {
+		return NewHTTPError(http.StatusForbidden, "oidc_authorized_party_mismatch", "Managed OIDC authorized party does not match the configured client")
+	}
 	if strings.TrimSpace(expectedNonce) == "" || firstOAuthClaim(claims, "nonce") != strings.TrimSpace(expectedNonce) {
 		return NewHTTPError(http.StatusForbidden, "oidc_nonce_mismatch", "Managed OIDC nonce does not match the login request")
 	}
@@ -301,6 +304,11 @@ func validateOIDCClaims(claims map[string]any, issuer string, clientID string, e
 		return NewHTTPError(http.StatusForbidden, "oidc_token_not_active", "Managed OIDC ID token is not active")
 	}
 	return nil
+}
+
+func oidcAudienceIsMultiple(value any) bool {
+	items, ok := value.([]any)
+	return ok && len(items) > 1
 }
 
 func oidcAudienceContains(value any, clientID string) bool {

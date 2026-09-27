@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -54,6 +56,115 @@ func TestGatewayIntegrationEndpointRequiresDedicatedToken(t *testing.T) {
 	authorized := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", event, "integration_token")
 	if authorized.Code != http.StatusOK {
 		t.Fatalf("expected integration token to be accepted, got %d: %s", authorized.Code, authorized.Body)
+	}
+}
+
+func TestGatewayIntegrationRequiresSignedTenantContext(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{
+		IntegrationToken: "integration_token", IntegrationContextSecret: "tenant-context-secret", SecretKey: "test_secret",
+	}).Handler()
+	event := gatewayIntegrationEvent("evt_signed_tenant", "tenant.created", "tenant", "tenant_01", "tenant_01", 1, map[string]interface{}{
+		"externalId": "tenant_01", "name": "Tenant one",
+	})
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(tenantID, signature string) responseBody {
+		req := httptest.NewRequest(http.MethodPost, "/api/internal/integration/events", bytes.NewReader(data))
+		req.Header.Set("authorization", "Bearer integration_token")
+		req.Header.Set("content-type", "application/json")
+		if tenantID != "" {
+			req.Header.Set("X-Integration-Tenant-Id", tenantID)
+		}
+		if signature != "" {
+			req.Header.Set("X-Integration-Tenant-Signature", signature)
+		}
+		recorder := httptest.NewRecorder()
+		app.ServeHTTP(recorder, req)
+		return responseBody{Code: recorder.Code, Body: recorder.Body.String()}
+	}
+	validSignature := gatewayIntegrationTenantSignature("tenant-context-secret", http.MethodPost, "/api/internal/integration/events", "tenant_01")
+	for _, rejected := range []responseBody{
+		request("", ""),
+		request("tenant_02", gatewayIntegrationTenantSignature("tenant-context-secret", http.MethodPost, "/api/internal/integration/events", "tenant_02")),
+		request("tenant_01", gatewayIntegrationTenantSignature("tenant-context-secret", http.MethodGet, "/api/internal/integration/events", "tenant_01")),
+	} {
+		if rejected.Code != http.StatusUnauthorized || !jsonBodyHasCode(rejected.Body, "invalid_integration_context") {
+			t.Fatalf("expected unsigned or mismatched tenant context rejection, got %d: %s", rejected.Code, rejected.Body)
+		}
+	}
+	accepted := request("tenant_01", validSignature)
+	if accepted.Code != http.StatusOK {
+		t.Fatalf("expected signed tenant event to pass, got %d: %s", accepted.Code, accepted.Body)
+	}
+	unsignedRead := doJSON(t, app, http.MethodGet, "/api/internal/integration/reconciliation?tenant_id=tenant_01", nil, "integration_token")
+	if unsignedRead.Code != http.StatusUnauthorized {
+		t.Fatalf("expected tenant read without context to fail, got %d: %s", unsignedRead.Code, unsignedRead.Body)
+	}
+	unsignedTenantRequests := []struct {
+		method  string
+		path    string
+		payload any
+	}{
+		{http.MethodGet, "/api/internal/integration/dependencies?tenant_id=tenant_01&principal_type=user&principal_id=user_01", nil},
+		{http.MethodGet, "/api/internal/model-access-keys?tenant_id=tenant_01", nil},
+		{http.MethodPost, "/api/internal/model-access-keys", map[string]any{"tenant_id": "tenant_01"}},
+		{http.MethodPost, "/api/internal/model-access-keys/key_01/reveal", map[string]any{"tenant_id": "tenant_01"}},
+		{http.MethodGet, "/api/internal/request-logs?tenant_id=tenant_01", nil},
+		{http.MethodGet, "/api/internal/usage?tenant_id=tenant_01", nil},
+	}
+	for _, item := range unsignedTenantRequests {
+		response := doJSON(t, app, item.method, item.path, item.payload, "integration_token")
+		if response.Code != http.StatusUnauthorized || !jsonBodyHasCode(response.Body, "invalid_integration_context") {
+			t.Fatalf("expected unsigned tenant request rejection for %s, got %d: %s", item.path, response.Code, response.Body)
+		}
+	}
+}
+
+func TestGatewayModelAccessKeyRejectsUnprojectedRequester(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	seedGatewayModelAccessKeyScope(t, app)
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_requester_tenant_02", "tenant.created", "tenant", "tenant_02", "tenant_02", 1, map[string]interface{}{
+		"externalId": "tenant_02", "name": "Tenant two",
+	}))
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_requester_member_02", "tenant_member.added", "tenant_member", "membership_02", "tenant_02", 1, map[string]interface{}{
+		"externalId": "membership_02", "principalExternalId": "user_02", "name": "User two",
+	}))
+	request := map[string]interface{}{
+		"request_id": "request_unprojected_actor", "tenant_id": "tenant_01", "project_id": "project_01",
+		"principal_type": "user", "principal_id": "user_01", "name": "Rejected actor",
+	}
+	missing := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", request, "integration_token")
+	if missing.Code != http.StatusBadRequest || !jsonBodyHasCode(missing.Body, "model_access_key_requester_required") {
+		t.Fatalf("expected missing requester rejection, got %d: %s", missing.Code, missing.Body)
+	}
+	request["requested_by"] = "user_02"
+	forged := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", request, "integration_token")
+	if forged.Code != http.StatusForbidden || !jsonBodyHasCode(forged.Body, "model_access_key_requester_unavailable") {
+		t.Fatalf("expected cross-tenant requester rejection, got %d: %s", forged.Code, forged.Body)
+	}
+	created := createGatewayModelAccessKeyForTest(t, app, "request_valid_actor", "user", "user_01")
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_requester_member_01_removed", "tenant_member.removed", "tenant_member", "membership_01", "tenant_01", 2, map[string]interface{}{
+		"externalId": "membership_01", "principalExternalId": "user_01", "name": "User one",
+	}))
+	replayed := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
+		"request_id": "request_valid_actor", "tenant_id": "tenant_01", "project_id": "project_01",
+		"principal_type": "user", "principal_id": "user_01", "name": "request_valid_actor", "requested_by": "user_01",
+	}, "integration_token")
+	if replayed.Code != http.StatusForbidden || !jsonBodyHasCode(replayed.Body, "model_access_key_requester_unavailable") {
+		t.Fatalf("expected inactive requester to be rejected on idempotent replay, got %d: %s", replayed.Code, replayed.Body)
+	}
+	itemPath := "/api/internal/model-access-keys/" + created.Data.ID
+	for _, operation := range []string{"reveal", "revoke"} {
+		response := doJSON(t, app, http.MethodPost, itemPath+"/"+operation, map[string]interface{}{
+			"tenant_id": "tenant_01", "principal_type": "user", "principal_id": "user_01", "requested_by": "user_02",
+		}, "integration_token")
+		if response.Code != http.StatusForbidden || !jsonBodyHasCode(response.Body, "model_access_key_requester_unavailable") {
+			t.Fatalf("expected cross-tenant %s requester rejection, got %d: %s", operation, response.Code, response.Body)
+		}
 	}
 }
 
@@ -666,7 +777,7 @@ func TestGatewayModelAccessKeyRequestIDIsTenantScoped(t *testing.T) {
 	}
 	response := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
 		"request_id": "shared_request", "tenant_id": "tenant_02", "project_id": "project_02",
-		"principal_type": "user", "principal_id": "user_02", "name": "Tenant two key",
+		"principal_type": "user", "principal_id": "user_02", "name": "Tenant two key", "requested_by": "user_02",
 	}, "integration_token")
 	if response.Code != http.StatusCreated {
 		t.Fatalf("expected request ID reuse in another tenant, got %d: %s", response.Code, response.Body)
@@ -785,6 +896,7 @@ func TestGatewayModelAccessKeyRequiresProjectedWorkloadForApplication(t *testing
 		"principal_type": "application",
 		"principal_id":   "application_01",
 		"name":           "客服助手生产",
+		"requested_by":   "user_01",
 	}, "integration_token")
 	if response.Code != http.StatusConflict || !jsonBodyHasCode(response.Body, "gateway_workload_unavailable") {
 		t.Fatalf("expected missing workload projection conflict, got %d: %s", response.Code, response.Body)
@@ -801,7 +913,7 @@ func TestGatewayModelAccessKeyRequiresMatchingWorkloadType(t *testing.T) {
 	}))
 	response := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
 		"request_id": "request_wrong_workload_type", "tenant_id": "tenant_01", "project_id": "project_01",
-		"principal_type": "agent", "principal_id": "application_01", "name": "错误类型",
+		"principal_type": "agent", "principal_id": "application_01", "name": "错误类型", "requested_by": "user_01",
 	}, "integration_token")
 	if response.Code != http.StatusConflict || !jsonBodyHasCode(response.Body, "gateway_workload_unavailable") {
 		t.Fatalf("expected mismatched workload type conflict, got %d: %s", response.Code, response.Body)
@@ -1033,7 +1145,7 @@ func createGatewayModelAccessKeyForTest(t *testing.T, app http.Handler, requestI
 	t.Helper()
 	response := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
 		"request_id": requestID, "tenant_id": "tenant_01", "project_id": "project_01",
-		"principal_type": principalType, "principal_id": principalID, "name": requestID,
+		"principal_type": principalType, "principal_id": principalID, "name": requestID, "requested_by": "user_01",
 	}, "integration_token")
 	if response.Code != http.StatusCreated {
 		t.Fatalf("expected model access key creation, got %d: %s", response.Code, response.Body)

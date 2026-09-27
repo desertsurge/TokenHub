@@ -95,6 +95,9 @@ func (s *Server) handleGatewayModelAccessKeys(w http.ResponseWriter, r *http.Req
 			Page:                page,
 			PageSize:            pageSize,
 		}
+		if !s.requireGatewayIntegrationTenant(w, r, filter.TenantExternalID) {
+			return
+		}
 		result, err := s.store.ListGatewayModelAccessKeys(filter)
 		if err != nil {
 			writeError(w, r, err)
@@ -105,6 +108,9 @@ func (s *Server) handleGatewayModelAccessKeys(w http.ResponseWriter, r *http.Req
 		var input GatewayModelAccessKeyCreateInput
 		if err := s.decodeJSON(w, r, &input); err != nil {
 			writeError(w, r, err)
+			return
+		}
+		if !s.requireGatewayIntegrationTenant(w, r, input.TenantExternalID) {
 			return
 		}
 		result, err := s.store.CreateGatewayModelAccessKey(input)
@@ -151,6 +157,9 @@ func (s *Server) handleGatewayModelAccessKeyItem(w http.ResponseWriter, r *http.
 		writeError(w, r, err)
 		return
 	}
+	if !s.requireGatewayIntegrationTenant(w, r, input.TenantExternalID) {
+		return
+	}
 	if parts[1] == "reveal" {
 		secret, err := s.store.RevealGatewayModelAccessKey(parts[0], input.TenantExternalID, input.PrincipalType, input.PrincipalID, input.RequestedBy)
 		if err != nil {
@@ -178,6 +187,9 @@ func (s *GormStore) CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreat
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := validateGatewayModelAccessKeyRequesterForTenant(s.db, normalized.TenantExternalID, normalized.RequestedBy); err != nil {
+		return GatewayModelAccessKeyCreateResult{}, err
+	}
 	if result, found, err := findGatewayModelAccessKeyRequest(s.db, controlRequestID, digest); found || err != nil {
 		return result, err
 	}
@@ -222,6 +234,9 @@ func (s *GormStore) CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreat
 	}
 
 	err = s.db.Transaction(func(tx *gorm.DB) error {
+		if err := validateGatewayModelAccessKeyRequesterForTenant(tx, normalized.TenantExternalID, normalized.RequestedBy); err != nil {
+			return err
+		}
 		if result, found, findErr := findGatewayModelAccessKeyRequest(tx, controlRequestID, digest); found || findErr != nil {
 			if findErr != nil {
 				return findErr
@@ -257,6 +272,9 @@ func (s *GormStore) CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreat
 		}).Error
 	})
 	if err != nil {
+		if requesterErr := validateGatewayModelAccessKeyRequesterForTenant(s.db, normalized.TenantExternalID, normalized.RequestedBy); requesterErr != nil {
+			return GatewayModelAccessKeyCreateResult{}, requesterErr
+		}
 		if result, found, findErr := findGatewayModelAccessKeyRequest(s.db, controlRequestID, digest); found || findErr != nil {
 			return result, findErr
 		}
@@ -460,6 +478,9 @@ func (s *GormStore) RevealGatewayModelAccessKey(id string, tenantExternalID stri
 
 	var secret string
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := validateGatewayModelAccessKeyRequesterForTenant(tx, tenantExternalID, requestedBy); err != nil {
+			return err
+		}
 		var key APIKey
 		if err := tx.First(&key, "id = ? AND managed_by = ? AND tenant_external_id = ? AND principal_type = ? AND principal_external_id = ?", id, gatewayModelAccessKeyManagedBy, tenantExternalID, principalType, principalID).Error; err != nil {
 			return notFound(err, "model_access_key_not_found", "Model access key not found")
@@ -503,6 +524,9 @@ func (s *GormStore) RevokeGatewayModelAccessKey(id string, tenantExternalID stri
 	var key APIKey
 	now := time.Now().UTC()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := validateGatewayModelAccessKeyRequesterForTenant(tx, tenantExternalID, requestedBy); err != nil {
+			return err
+		}
 		query := tx.Where("id = ? AND managed_by = ? AND tenant_external_id = ?", id, gatewayModelAccessKeyManagedBy, tenantExternalID)
 		if principalType != "" || principalID != "" {
 			if principalType == "" || principalID == "" {
@@ -641,6 +665,26 @@ func resolveGatewayModelAccessKeyScope(db *gorm.DB, input GatewayModelAccessKeyC
 		}
 	}
 	return tenant, project, nil
+}
+
+func validateGatewayModelAccessKeyRequesterForTenant(db *gorm.DB, tenantExternalID, requestedBy string) error {
+	var tenant GatewayTenant
+	if err := db.First(&tenant, "external_tenant_id = ? AND status = ?", tenantExternalID, StatusActive).Error; err != nil {
+		return NewHTTPError(http.StatusConflict, "gateway_tenant_unavailable", "Gateway tenant projection is not active")
+	}
+	return validateGatewayModelAccessKeyRequester(db, tenant.ID, requestedBy)
+}
+
+func validateGatewayModelAccessKeyRequester(db *gorm.DB, tenantID, requestedBy string) error {
+	requestedBy = strings.TrimSpace(requestedBy)
+	if requestedBy == "" {
+		return NewHTTPError(http.StatusBadRequest, "model_access_key_requester_required", "Requesting principal is required")
+	}
+	var principal GatewayPrincipal
+	if err := db.First(&principal, "tenant_id = ? AND external_principal_id = ? AND status = ?", tenantID, requestedBy, StatusActive).Error; err != nil {
+		return NewHTTPError(http.StatusForbidden, "model_access_key_requester_unavailable", "Requesting principal is not active in the tenant")
+	}
+	return nil
 }
 
 func validateGatewayModelAccessKeyPrincipal(db *gorm.DB, tenant GatewayTenant, project GatewayProject, input GatewayModelAccessKeyCreateInput) error {

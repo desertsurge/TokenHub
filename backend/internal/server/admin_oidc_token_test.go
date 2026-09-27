@@ -83,6 +83,43 @@ func TestVerifyManagedOIDCTokenRejectsIssuerAudienceNonceAndSignature(t *testing
 	}
 }
 
+func TestVerifyManagedOIDCTokenRequiresAuthorizedPartyForMultipleAudiences(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := managedGatewayProvider()
+	provider.Fields["client_id"] = "client-1"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{"keys": []map[string]string{{
+			"kty": "RSA", "alg": "RS256", "kid": "key-1",
+			"n": base64.RawURLEncoding.EncodeToString(privateKey.PublicKey.N.Bytes()),
+			"e": base64.RawURLEncoding.EncodeToString([]byte{1, 0, 1}),
+		}}})
+	}))
+	defer server.Close()
+	provider.Fields["jwks_url"] = server.URL
+	base := map[string]any{
+		"iss": provider.Fields["issuer_url"], "sub": "subject-1", "aud": []any{"client-1", "other-client"},
+		"nonce": "nonce-1", "exp": time.Now().Add(5 * time.Minute).Unix(),
+	}
+	missing := signTestOIDCToken(t, privateKey, cloneClaims(base))
+	if _, err := verifyManagedOIDCToken(t.Context(), provider, missing, "nonce-1"); AsHTTPError(err).Code != "oidc_authorized_party_mismatch" {
+		t.Fatalf("expected missing azp to be rejected, got %v", err)
+	}
+	wrongClaims := cloneClaims(base)
+	wrongClaims["azp"] = "other-client"
+	if _, err := verifyManagedOIDCToken(t.Context(), provider, signTestOIDCToken(t, privateKey, wrongClaims), "nonce-1"); AsHTTPError(err).Code != "oidc_authorized_party_mismatch" {
+		t.Fatalf("expected wrong azp to be rejected, got %v", err)
+	}
+	validClaims := cloneClaims(base)
+	validClaims["azp"] = "client-1"
+	if _, err := verifyManagedOIDCToken(t.Context(), provider, signTestOIDCToken(t, privateKey, validClaims), "nonce-1"); err != nil {
+		t.Fatalf("expected matching azp to pass, got %v", err)
+	}
+}
+
 func signTestOIDCToken(t *testing.T, privateKey *rsa.PrivateKey, claims map[string]any) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"key-1","typ":"JWT"}`))

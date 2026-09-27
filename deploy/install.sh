@@ -130,6 +130,8 @@ image_tag = image.rsplit(":", 1)[1] if ":" in image else ""
 for name, default in (
     ("TOKENHUB_ENV", "prod"),
     ("TOKENHUB_ADMIN_TOKEN", "change-me-tokenhub-admin-token"),
+    ("TOKENHUB_INTEGRATION_TOKEN", "change-me-tokenhub-integration-token"),
+    ("TOKENHUB_INTEGRATION_CONTEXT_SECRET", "change-me-tokenhub-integration-context-secret"),
     ("TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD", "change-me-tokenhub-admin-password"),
     ("TOKENHUB_DATABASE_URL", "sqlite:///app/data/tokenhub.db"),
     ("TOKENHUB_SECRET_KEY", "change-me-tokenhub-secret-key"),
@@ -150,6 +152,7 @@ fi
 tokenhub_environment=""
 admin_token=""
 integration_token=""
+integration_context_secret=""
 bootstrap_admin_password=""
 database_url=""
 secret_key=""
@@ -160,6 +163,7 @@ while IFS= read -r line; do
     TOKENHUB_ENV=*) tokenhub_environment="${line#*=}" ;;
     TOKENHUB_ADMIN_TOKEN=*) admin_token="${line#*=}" ;;
     TOKENHUB_INTEGRATION_TOKEN=*) integration_token="${line#*=}" ;;
+    TOKENHUB_INTEGRATION_CONTEXT_SECRET=*) integration_context_secret="${line#*=}" ;;
     TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=*) bootstrap_admin_password="${line#*=}" ;;
     TOKENHUB_DATABASE_URL=*) database_url="${line#*=}" ;;
     TOKENHUB_SECRET_KEY=*) secret_key="${line#*=}" ;;
@@ -172,6 +176,7 @@ unset compose_environment
 tokenhub_environment="${tokenhub_environment:-prod}"
 admin_token="${admin_token:-change-me-tokenhub-admin-token}"
 integration_token="${integration_token:-change-me-tokenhub-integration-token}"
+integration_context_secret="${integration_context_secret:-change-me-tokenhub-integration-context-secret}"
 bootstrap_admin_password="${bootstrap_admin_password:-change-me-tokenhub-admin-password}"
 database_url="${database_url:-sqlite:///app/data/tokenhub.db}"
 secret_key="${secret_key:-change-me-tokenhub-secret-key}"
@@ -467,13 +472,15 @@ elif [[ "$environment" != "dev" && "$environment" != "development" && "$environm
     "dev_admin_token" "change-me-tokenhub-admin-token"
   validate_secret "TOKENHUB_INTEGRATION_TOKEN" "$integration_token" 32 \
     "dev_integration_token" "change-me-tokenhub-integration-token"
+  validate_secret "TOKENHUB_INTEGRATION_CONTEXT_SECRET" "$integration_context_secret" 32 \
+    "dev_integration_context_secret" "change-me-tokenhub-integration-context-secret"
   validate_secret "TOKENHUB_SECRET_KEY" "$secret_key" 32 "$root_key_can_be_unset" \
     "dev_tokenhub_secret_key" "change-me-tokenhub-secret-key"
   validate_secret "TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD" "$bootstrap_admin_password" 12 true \
     "admin123456" "change-me-tokenhub-admin-password"
 fi
 
-unset admin_token bootstrap_admin_password database_url root_key_can_be_unset secret_key
+unset admin_token bootstrap_admin_password database_url integration_context_secret root_key_can_be_unset secret_key
 
 if [ "${#validation_errors[@]}" -gt 0 ]; then
   error "deployment configuration is unsafe for $environment:"

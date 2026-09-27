@@ -26,6 +26,7 @@ type Config struct {
 	InstallRoot              string
 	AdminToken               string
 	IntegrationToken         string
+	IntegrationContextSecret string
 	BootstrapAdminPassword   string
 	PublicBaseURL            string
 	DatabaseURL              string
@@ -148,6 +149,7 @@ func ConfigFromEnv() Config {
 		InstallRoot:                      getenv("TOKENHUB_INSTALL_ROOT", defaultNativeInstallRoot),
 		AdminToken:                       getenv("TOKENHUB_ADMIN_TOKEN", "dev_admin_token"),
 		IntegrationToken:                 getenv("TOKENHUB_INTEGRATION_TOKEN", "dev_integration_token"),
+		IntegrationContextSecret:         getenv("TOKENHUB_INTEGRATION_CONTEXT_SECRET", ""),
 		BootstrapAdminPassword:           getenv("TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD", "admin123456"),
 		PublicBaseURL:                    getenv("TOKENHUB_PUBLIC_BASE_URL", ""),
 		DatabaseURL:                      resolveDatabaseURL(),
@@ -248,6 +250,9 @@ func (c Config) ValidateForStartup() error {
 	if strings.TrimSpace(c.IntegrationToken) != "" {
 		if reason := weakProductionSecretReason(c.IntegrationToken, 32, "dev_integration_token", "change-me-tokenhub-integration-token"); reason != "" {
 			invalid = append(invalid, "TOKENHUB_INTEGRATION_TOKEN "+reason)
+		}
+		if reason := weakProductionSecretReason(c.IntegrationContextSecret, 32, "change-me-tokenhub-integration-context-secret"); reason != "" {
+			invalid = append(invalid, "TOKENHUB_INTEGRATION_CONTEXT_SECRET "+reason)
 		}
 	}
 	if reason := weakProductionSecretReason(c.SecretKey, 32, "dev_tokenhub_secret_key", "change-me-tokenhub-secret-key"); reason != "" {

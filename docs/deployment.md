@@ -174,6 +174,7 @@ Review `deploy/.env` before starting:
 
 - `TOKENHUB_ADMIN_TOKEN`: Optional static Admin API token. Set at least 32 random bytes when operational automation needs it; otherwise leave the placeholder to disable it.
 - `TOKENHUB_INTEGRATION_TOKEN`: Optional dedicated credential for external platform integration events and model access key control endpoints. Set at least 32 random bytes when integration endpoints are enabled.
+- `TOKENHUB_INTEGRATION_CONTEXT_SECRET`: Independent secret used to verify the signed tenant context on tenant-scoped integration requests. Use the same random value in the external integration service, deploy its signed-request support first, and then enable this setting. Production deployments with an integration token require at least 32 bytes.
 - `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`: Optional initial `admin` password. Set at least 12 bytes, or leave the placeholder so TokenHub generates one.
 - `TOKENHUB_SECRET_KEY`: Backend encryption root key. PostgreSQL and existing SQLite databases require at least 32 stable bytes. A brand-new file-backed SQLite deployment can leave the placeholder so TokenHub generates a `0600` key file beside the database.
 - `TOKENHUB_IMAGE_TAG`: Managed TokenHub image tag. Default: `latest`.
@@ -382,6 +383,7 @@ Options: `--rebuild`, `--reset` to drop the local database, `--backend-port N`, 
 | `TOKENHUB_CORS_ALLOWED_ORIGINS` | public URL | Comma-separated exact browser origins allowed to call the backend; when set, the same origins are the exact allowlist for OAuth console returns. Each entry must contain only the scheme, host, and optional port, with no path |
 | `TOKENHUB_ADMIN_TOKEN` | `change-me-tokenhub-admin-token` | Optional static Admin API token; the known placeholder disables it |
 | `TOKENHUB_INTEGRATION_TOKEN` | `change-me-tokenhub-integration-token` | Optional dedicated token for external platform integration events and model access key control endpoints |
+| `TOKENHUB_INTEGRATION_CONTEXT_SECRET` | `change-me-tokenhub-integration-context-secret` | Independent tenant-context signing secret for integration requests |
 | `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD` | `change-me-tokenhub-admin-password` | Optional initial `admin` password; the known placeholder generates a random first-run password |
 | `TOKENHUB_SECRET_KEY` | `change-me-tokenhub-secret-key` | Stable encryption root key; generated beside a new file-backed SQLite database only |
 | `TOKENHUB_DATABASE_URL` | `sqlite:///app/data/tokenhub.db` | Database connection URL (sqlite:// or postgresql://) |

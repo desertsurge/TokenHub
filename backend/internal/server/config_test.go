@@ -152,17 +152,18 @@ func TestConfigFromEnvEnablesResponseWorkerStartup(t *testing.T) {
 
 func TestProductionConfigRejectsPlaceholderCredentials(t *testing.T) {
 	config := Config{
-		Environment:            "prod",
-		AdminToken:             "change-me-tokenhub-admin-token",
-		IntegrationToken:       "change-me-tokenhub-integration-token",
-		SecretKey:              "change-me-tokenhub-secret-key",
-		BootstrapAdminPassword: "admin123456",
+		Environment:              "prod",
+		AdminToken:               "change-me-tokenhub-admin-token",
+		IntegrationToken:         "change-me-tokenhub-integration-token",
+		IntegrationContextSecret: "change-me-tokenhub-integration-context-secret",
+		SecretKey:                "change-me-tokenhub-secret-key",
+		BootstrapAdminPassword:   "admin123456",
 	}
 	err := config.ValidateForStartup()
 	if err == nil {
 		t.Fatal("expected production credential validation to fail")
 	}
-	for _, name := range []string{"TOKENHUB_ADMIN_TOKEN", "TOKENHUB_INTEGRATION_TOKEN", "TOKENHUB_SECRET_KEY", "TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD"} {
+	for _, name := range []string{"TOKENHUB_ADMIN_TOKEN", "TOKENHUB_INTEGRATION_TOKEN", "TOKENHUB_INTEGRATION_CONTEXT_SECRET", "TOKENHUB_SECRET_KEY", "TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD"} {
 		if !strings.Contains(err.Error(), name) {
 			t.Fatalf("expected validation error to mention %s: %v", name, err)
 		}
@@ -174,11 +175,12 @@ func TestProductionConfigRejectsPlaceholderCredentials(t *testing.T) {
 
 func TestProductionConfigReportsMinimumCredentialLengths(t *testing.T) {
 	config := Config{
-		Environment:            "prod",
-		AdminToken:             "short-token",
-		IntegrationToken:       "short-integration-token",
-		SecretKey:              "short-secret",
-		BootstrapAdminPassword: "short",
+		Environment:              "prod",
+		AdminToken:               "short-token",
+		IntegrationToken:         "short-integration-token",
+		IntegrationContextSecret: "short-context-secret",
+		SecretKey:                "short-secret",
+		BootstrapAdminPassword:   "short",
 	}
 	err := config.ValidateForStartup()
 	if err == nil {
@@ -187,6 +189,7 @@ func TestProductionConfigReportsMinimumCredentialLengths(t *testing.T) {
 	for _, expected := range []string{
 		"TOKENHUB_ADMIN_TOKEN must be at least 32 bytes",
 		"TOKENHUB_INTEGRATION_TOKEN must be at least 32 bytes",
+		"TOKENHUB_INTEGRATION_CONTEXT_SECRET must be at least 32 bytes",
 		"TOKENHUB_SECRET_KEY must be at least 32 bytes",
 		"TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD must be at least 12 bytes",
 	} {
@@ -194,7 +197,7 @@ func TestProductionConfigReportsMinimumCredentialLengths(t *testing.T) {
 			t.Fatalf("expected validation error to contain %q: %v", expected, err)
 		}
 	}
-	for _, secret := range []string{config.AdminToken, config.IntegrationToken, config.SecretKey, config.BootstrapAdminPassword} {
+	for _, secret := range []string{config.AdminToken, config.IntegrationToken, config.IntegrationContextSecret, config.SecretKey, config.BootstrapAdminPassword} {
 		if strings.Contains(err.Error(), secret) {
 			t.Fatalf("validation error must not expose credential value %q: %v", secret, err)
 		}
@@ -203,14 +206,26 @@ func TestProductionConfigReportsMinimumCredentialLengths(t *testing.T) {
 
 func TestProductionConfigAcceptsStrongCredentials(t *testing.T) {
 	config := Config{
-		Environment:            "production",
-		AdminToken:             strings.Repeat("a", 32),
-		IntegrationToken:       strings.Repeat("i", 32),
-		SecretKey:              strings.Repeat("s", 32),
-		BootstrapAdminPassword: "strong-admin-password",
+		Environment:              "production",
+		AdminToken:               strings.Repeat("a", 32),
+		IntegrationToken:         strings.Repeat("i", 32),
+		IntegrationContextSecret: strings.Repeat("c", 32),
+		SecretKey:                strings.Repeat("s", 32),
+		BootstrapAdminPassword:   "strong-admin-password",
 	}
 	if err := config.ValidateForStartup(); err != nil {
 		t.Fatalf("expected strong production credentials to pass: %v", err)
+	}
+}
+
+func TestProductionIntegrationRequiresTenantContextSecret(t *testing.T) {
+	config := Config{
+		Environment:      "production",
+		IntegrationToken: strings.Repeat("i", 32),
+		SecretKey:        strings.Repeat("s", 32),
+	}
+	if err := config.ValidateForStartup(); err == nil || !strings.Contains(err.Error(), "TOKENHUB_INTEGRATION_CONTEXT_SECRET") {
+		t.Fatalf("expected missing tenant context secret to fail startup: %v", err)
 	}
 }
 

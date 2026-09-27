@@ -174,6 +174,7 @@ cp deploy/.env.example deploy/.env
 
 - `TOKENHUB_ADMIN_TOKEN`：可选的 Admin API 静态 Token。运维自动化需要使用时，设置至少 32 字节的随机值；否则保留占位值以禁用该 Token。
 - `TOKENHUB_INTEGRATION_TOKEN`：可选的外部平台集成事件和模型访问凭证控制接口专用凭证。启用集成接口时设置至少 32 个随机字节。
+- `TOKENHUB_INTEGRATION_CONTEXT_SECRET`：独立的租户上下文签名密钥，用于校验租户级集成请求。外部集成服务使用相同随机值；先部署发送端签名能力，再启用此配置。生产环境启用集成 Token 时要求至少 32 字节。
 - `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`：可选的初始 `admin` 密码。可以设置至少 12 字节的密码，也可以保留占位值，由 TokenHub 自动生成。
 - `TOKENHUB_SECRET_KEY`：后端加密根密钥。PostgreSQL 和已有 SQLite 数据库必须配置至少 32 字节的稳定值。全新文件型 SQLite 部署可以保留占位值，TokenHub 会在数据库旁生成权限为 `0600` 的密钥文件。
 - `TOKENHUB_IMAGE_TAG`：托管 TokenHub 镜像标签，默认 `latest`。
@@ -382,6 +383,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_CORS_ALLOWED_ORIGINS` | 公网地址 | 允许调用后端的精确浏览器 Origin，逗号分隔；设置后，同一列表也是 OAuth 控制台回跳 Origin 的精确白名单。每项只能包含 scheme、host 和可选端口，不得包含路径 |
 | `TOKENHUB_ADMIN_TOKEN` | `change-me-tokenhub-admin-token` | 可选的 Admin API 静态 Token；已知占位值表示禁用 |
 | `TOKENHUB_INTEGRATION_TOKEN` | `change-me-tokenhub-integration-token` | 可选的外部平台集成事件和模型访问凭证控制接口专用 Token |
+| `TOKENHUB_INTEGRATION_CONTEXT_SECRET` | `change-me-tokenhub-integration-context-secret` | 集成请求的独立租户上下文签名密钥 |
 | `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD` | `change-me-tokenhub-admin-password` | 可选的初始 `admin` 密码；已知占位值表示首次启动时随机生成 |
 | `TOKENHUB_SECRET_KEY` | `change-me-tokenhub-secret-key` | 稳定的加密根密钥；仅全新文件型 SQLite 数据库可以自动生成 |
 | `TOKENHUB_DATABASE_URL` | `sqlite:///app/data/tokenhub.db` | 容器内 SQLite 数据库路径 |

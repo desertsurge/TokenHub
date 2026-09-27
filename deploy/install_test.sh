@@ -142,6 +142,7 @@ weak_password_environment=$(cat <<'EOF'
 TOKENHUB_ENV=prod
 TOKENHUB_ADMIN_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 TOKENHUB_INTEGRATION_TOKEN=iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+TOKENHUB_INTEGRATION_CONTEXT_SECRET=cccccccccccccccccccccccccccccccc
 TOKENHUB_SECRET_KEY=ssssssssssssssssssssssssssssssss
 TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=short
 EOF
@@ -167,7 +168,7 @@ assert_not_contains "$(<"$CALL_LOG")" "up -d --remove-orphans --no-build --pull 
 
 unicode_whitespace=$'\302\205\302\240\341\232\200\342\200\200\342\200\201\342\200\202\342\200\203\342\200\204\342\200\205\342\200\206\342\200\207\342\200\210\342\200\211\342\200\212\342\200\250\342\200\251\342\200\257\342\201\237\343\200\200'
 unicode_password="${unicode_whitespace}aaaaaaaaaaa${unicode_whitespace}"
-unicode_whitespace_environment="$(printf 'TOKENHUB_ENV=prod\nTOKENHUB_ADMIN_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nTOKENHUB_INTEGRATION_TOKEN=iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii\nTOKENHUB_SECRET_KEY=ssssssssssssssssssssssssssssssss\nTOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=%s\n' "$unicode_password")"
+unicode_whitespace_environment="$(printf 'TOKENHUB_ENV=prod\nTOKENHUB_ADMIN_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nTOKENHUB_INTEGRATION_TOKEN=iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii\nTOKENHUB_INTEGRATION_CONTEXT_SECRET=cccccccccccccccccccccccccccccccc\nTOKENHUB_SECRET_KEY=ssssssssssssssssssssssssssssssss\nTOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=%s\n' "$unicode_password")"
 
 : >"$CALL_LOG"
 FAKE_COMPOSE_ENVIRONMENT="$unicode_whitespace_environment"
@@ -189,6 +190,7 @@ strong_environment=$(cat <<'EOF'
 TOKENHUB_ENV=prod
 TOKENHUB_ADMIN_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 TOKENHUB_INTEGRATION_TOKEN=iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+TOKENHUB_INTEGRATION_CONTEXT_SECRET=cccccccccccccccccccccccccccccccc
 TOKENHUB_SECRET_KEY=ssssssssssssssssssssssssssssssss
 TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=strong-admin-password
 EOF
@@ -197,6 +199,8 @@ EOF
 placeholder_environment=$(cat <<'EOF'
 TOKENHUB_ENV=prod
 TOKENHUB_ADMIN_TOKEN=change-me-tokenhub-admin-token
+TOKENHUB_INTEGRATION_TOKEN=iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+TOKENHUB_INTEGRATION_CONTEXT_SECRET=cccccccccccccccccccccccccccccccc
 TOKENHUB_SECRET_KEY=change-me-tokenhub-secret-key
 TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=change-me-tokenhub-admin-password
 EOF
@@ -212,6 +216,8 @@ assert_not_contains "$(<"$CALL_LOG")" " build"
 postgres_placeholder_environment=$(cat <<'EOF'
 TOKENHUB_ENV=prod
 TOKENHUB_ADMIN_TOKEN=change-me-tokenhub-admin-token
+TOKENHUB_INTEGRATION_TOKEN=iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+TOKENHUB_INTEGRATION_CONTEXT_SECRET=cccccccccccccccccccccccccccccccc
 TOKENHUB_DATABASE_URL=postgresql://tokenhub@example.test/tokenhub
 TOKENHUB_SECRET_KEY=change-me-tokenhub-secret-key
 TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=change-me-tokenhub-admin-password
@@ -301,6 +307,8 @@ assert_contains "$output" "deployment configuration is valid for prod"
 optional_placeholder_environment=$(cat <<'EOF'
 TOKENHUB_ENV=prod
 TOKENHUB_ADMIN_TOKEN=change-me-tokenhub-admin-token
+TOKENHUB_INTEGRATION_TOKEN=iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+TOKENHUB_INTEGRATION_CONTEXT_SECRET=cccccccccccccccccccccccccccccccc
 TOKENHUB_SECRET_KEY=ssssssssssssssssssssssssssssssss
 TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=change-me-tokenhub-admin-password
 EOF
@@ -492,6 +500,7 @@ development_environment=$(cat <<'EOF'
 TOKENHUB_ENV=dev
 TOKENHUB_ADMIN_TOKEN=dev_admin_token
 TOKENHUB_INTEGRATION_TOKEN=dev_integration_token
+TOKENHUB_INTEGRATION_CONTEXT_SECRET=dev_integration_context_secret
 TOKENHUB_SECRET_KEY=dev_tokenhub_secret_key
 TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD=admin123456
 EOF
