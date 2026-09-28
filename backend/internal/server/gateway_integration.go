@@ -79,6 +79,8 @@ type gatewayProjectionDigestItem struct {
 	OwnerID        string `json:"owner_id,omitempty"`
 	CostCenterID   string `json:"cost_center_id,omitempty"`
 	Name           string `json:"name,omitempty"`
+	Email          string `json:"email,omitempty"`
+	Code           string `json:"code,omitempty"`
 	WorkloadType   string `json:"workload_type,omitempty"`
 	Environment    string `json:"environment,omitempty"`
 	Status         string `json:"status"`
@@ -480,8 +482,36 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 	principalIDs := make(map[string]string, len(principals))
 	for _, item := range principals {
 		principalIDs[item.ID] = item.ExternalPrincipalID
+	}
+	managedEmails := make(map[string]string, len(principals))
+	if len(principals) > 0 {
+		externalPrincipalIDs := make([]string, 0, len(principals))
+		for _, item := range principals {
+			externalPrincipalIDs = append(externalPrincipalIDs, item.ExternalPrincipalID)
+		}
+		var managedUsers []GatewayManagedUser
+		if err := s.db.Where("external_principal_id IN ?", externalPrincipalIDs).Find(&managedUsers).Error; err != nil {
+			return nil, nil, err
+		}
+		adminUserIDs := make([]string, 0, len(managedUsers))
+		externalPrincipalByAdminUser := make(map[string]string, len(managedUsers))
+		for _, managed := range managedUsers {
+			adminUserIDs = append(adminUserIDs, managed.AdminUserID)
+			externalPrincipalByAdminUser[managed.AdminUserID] = managed.ExternalPrincipalID
+		}
+		if len(adminUserIDs) > 0 {
+			var adminUsers []AdminUser
+			if err := s.db.Where("id IN ?", adminUserIDs).Find(&adminUsers).Error; err != nil {
+				return nil, nil, err
+			}
+			for _, user := range adminUsers {
+				managedEmails[externalPrincipalByAdminUser[user.ID]] = user.Email
+			}
+		}
+	}
+	for _, item := range principals {
 		itemsByType["tenant_member"] = append(itemsByType["tenant_member"], gatewayProjectionDigestItem{
-			ExternalID: item.ExternalMembershipID, PrincipalID: item.ExternalPrincipalID, Name: item.DisplayName,
+			ExternalID: item.ExternalMembershipID, PrincipalID: item.ExternalPrincipalID, Name: item.DisplayName, Email: managedEmails[item.ExternalPrincipalID],
 			Status: item.Status, Version: item.Version, Deleted: item.DeletedAt != nil,
 		})
 	}
@@ -526,7 +556,7 @@ func (s *GormStore) gatewayProjectionReconciliation(tenantExternalID string) (ma
 	}
 	for _, item := range costCenters {
 		itemsByType["cost_center"] = append(itemsByType["cost_center"], gatewayProjectionDigestItem{
-			ExternalID: item.ExternalCostCenterID, Name: item.Name, Status: item.Status,
+			ExternalID: item.ExternalCostCenterID, Name: item.Name, Code: item.Code, Status: item.Status,
 			Version: item.Version, Deleted: item.DeletedAt != nil,
 		})
 	}
@@ -586,6 +616,11 @@ func canonicalGatewayProjectionDigest(items []gatewayProjectionDigestItem) []byt
 		var value map[string]any
 		if err := json.Unmarshal(encoded, &value); err != nil {
 			value = map[string]any{}
+		}
+		if item.Deleted {
+			for _, key := range []string{"name", "email", "code", "workload_type", "environment"} {
+				delete(value, key)
+			}
 		}
 		canonical = append(canonical, value)
 	}
