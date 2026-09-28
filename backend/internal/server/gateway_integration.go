@@ -1161,6 +1161,9 @@ func syncGatewayServingOrganizationTeam(tx *gorm.DB, organization GatewayOrganiz
 	team.Fields["managed_by"] = "gateway_integration"
 	team.Fields["tenant_id"] = tenant.ExternalTenantID
 	team.Fields["external_organization_id"] = organization.ExternalOrganizationID
+	if err := applyGatewayServingTeamCostCenter(tx, organization, &team); err != nil {
+		return "", err
+	}
 	team.UpdatedAt = now
 	if err := tx.Save(&team).Error; err != nil {
 		return "", err
@@ -1211,6 +1214,9 @@ func applyGatewayCostCenter(tx *gorm.DB, event GatewayIntegrationEvent, now time
 	if err := syncGatewayServingProjectsForCostCenter(tx, item, now); err != nil {
 		return "", "cost_center", 0, "", err
 	}
+	if err := syncGatewayServingTeamsForCostCenter(tx, item, now); err != nil {
+		return "", "cost_center", 0, "", err
+	}
 	return item.ID, "cost_center", item.Version, "applied", nil
 }
 
@@ -1246,6 +1252,7 @@ func applyGatewayOrganizationCostCenter(tx *gorm.DB, event GatewayIntegrationEve
 	if item.ID == "" {
 		item.ID, item.TenantID, item.ExternalBindingID = NewID("gwoc"), tenant.ID, event.AggregateID
 	}
+	previousOrganizationID := item.OrganizationID
 	item.OrganizationID, item.CostCenterID = organization.ID, costCenter.ID
 	item.Status, item.DeletedAt = projectionStatus(event, item.Status, item.DeletedAt, now)
 	if item.Status == StatusActive && item.DeletedAt == nil {
@@ -1262,6 +1269,14 @@ func applyGatewayOrganizationCostCenter(tx *gorm.DB, event GatewayIntegrationEve
 	item.Version, item.SyncedAt = event.Version, now
 	if err := tx.Save(&item).Error; err != nil {
 		return "", "organization_cost_center", 0, "", err
+	}
+	if err := syncGatewayServingTeamForOrganizationID(tx, organization.ID, now); err != nil {
+		return "", "organization_cost_center", 0, "", err
+	}
+	if previousOrganizationID != organization.ID {
+		if err := syncGatewayServingTeamForOrganizationID(tx, previousOrganizationID, now); err != nil {
+			return "", "organization_cost_center", 0, "", err
+		}
 	}
 	return item.ID, "organization_cost_center", item.Version, "applied", nil
 }
