@@ -44,6 +44,34 @@ func TestGatewayIntegrationDependenciesRequireProjection(t *testing.T) {
 	if principalReady.Code != http.StatusOK || !strings.Contains(principalReady.Body, `"ready":true`) {
 		t.Fatalf("ready principal was rejected without a project: status=%d body=%s", principalReady.Code, principalReady.Body)
 	}
+	stalePrincipal := doJSON(t, app, http.MethodGet, principalPath+"&tenant_version=2&principal_version=2", nil, "integration_token")
+	if stalePrincipal.Code != http.StatusConflict || !strings.Contains(stalePrincipal.Body, `"dependency_code":"gateway_tenant_stale"`) {
+		t.Fatalf("stale tenant projection was reported ready: status=%d body=%s", stalePrincipal.Code, stalePrincipal.Body)
+	}
+	tenantUpdate := gatewayIntegrationEvent("evt_ready_tenant_v2", "tenant.updated", "tenant", "tenant_01", "tenant_01", 2, map[string]interface{}{
+		"externalId": "tenant_01", "name": "Tenant", "status": "active",
+	})
+	if response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", tenantUpdate, "integration_token"); response.Code != http.StatusOK {
+		t.Fatalf("tenant projection update failed: status=%d body=%s", response.Code, response.Body)
+	}
+	stalePrincipal = doJSON(t, app, http.MethodGet, principalPath+"&tenant_version=2&principal_version=2", nil, "integration_token")
+	if stalePrincipal.Code != http.StatusConflict || !strings.Contains(stalePrincipal.Body, `"dependency_code":"gateway_principal_stale"`) {
+		t.Fatalf("stale principal projection was reported ready: status=%d body=%s", stalePrincipal.Code, stalePrincipal.Body)
+	}
+	memberUpdate := gatewayIntegrationEvent("evt_ready_member_v2", "tenant_member.updated", "tenant_member", "member_01", "tenant_01", 2, map[string]interface{}{
+		"externalId": "member_01", "principalExternalId": "user_01", "name": "Updated User", "email": "updated@example.test", "status": "active",
+	})
+	if response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", memberUpdate, "integration_token"); response.Code != http.StatusOK {
+		t.Fatalf("principal projection update failed: status=%d body=%s", response.Code, response.Body)
+	}
+	versionReady := doJSON(t, app, http.MethodGet, principalPath+"&tenant_version=2&principal_version=2", nil, "integration_token")
+	if versionReady.Code != http.StatusOK || !strings.Contains(versionReady.Body, `"ready":true`) {
+		t.Fatalf("current projection version was rejected: status=%d body=%s", versionReady.Code, versionReady.Body)
+	}
+	invalidVersion := doJSON(t, app, http.MethodGet, principalPath+"&principal_version=0", nil, "integration_token")
+	if invalidVersion.Code != http.StatusBadRequest {
+		t.Fatalf("invalid projection version was accepted: status=%d body=%s", invalidVersion.Code, invalidVersion.Body)
+	}
 
 	missingProject := doJSON(t, app, http.MethodGet, "/api/internal/integration/dependencies?tenant_id=tenant_01&principal_type=service_account&principal_id=service_01", nil, "integration_token")
 	if missingProject.Code != http.StatusBadRequest {
