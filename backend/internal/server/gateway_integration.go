@@ -870,9 +870,15 @@ func applyGatewayPrincipal(tx *gorm.DB, event GatewayIntegrationEvent, now time.
 	}
 	if err == nil {
 		if item.ExternalMembershipID == event.AggregateID && item.Version >= event.Version {
-			if payloadString(event.Payload, "email") != "" {
-				if err := syncGatewayManagedUser(tx, item, event); err != nil {
-					return "", "principal", 0, "", err
+			if item.Version == event.Version && payloadString(event.Payload, "email") != "" {
+				var managed GatewayManagedUser
+				managedErr := tx.First(&managed, "external_principal_id = ?", item.ExternalPrincipalID).Error
+				if errors.Is(managedErr, gorm.ErrRecordNotFound) {
+					if err := syncGatewayManagedUser(tx, item, event); err != nil {
+						return "", "principal", 0, "", err
+					}
+				} else if managedErr != nil {
+					return "", "principal", 0, "", managedErr
 				}
 			}
 			return item.ID, "principal", item.Version, "ignored_stale", nil

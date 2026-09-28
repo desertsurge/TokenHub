@@ -194,3 +194,68 @@ func TestGatewayManagedUserRejectsExistingEmail(t *testing.T) {
 		t.Fatalf("conflicted principal was committed: count=%d err=%v", count, err)
 	}
 }
+
+func TestGatewayManagedUserIgnoresStaleEmailUpdate(t *testing.T) {
+	store := NewMemoryStore()
+	seedManagedGatewayUser(t, store, "profile_stale", "previous@example.test")
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+
+	current := gatewayIntegrationEvent("evt_member_current", "tenant_member.updated", "tenant_member", "member_profile_stale", "tenant_managed", 2, map[string]interface{}{
+		"externalId": "member_profile_stale", "principalExternalId": "profile_stale", "name": "Current user", "email": "current@example.test", "status": "active",
+	})
+	applyGatewayIntegrationEventForTest(t, app, current)
+	if _, err := store.CreateAdminUser(AdminUser{Username: "previous-owner", Email: "previous@example.test", Role: "user"}, "LocalPassword123!"); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := gatewayIntegrationEvent("evt_member_stale_email", "tenant_member.updated", "tenant_member", "member_profile_stale", "tenant_managed", 1, map[string]interface{}{
+		"externalId": "member_profile_stale", "principalExternalId": "profile_stale", "name": "Previous user", "email": "previous@example.test", "status": "active",
+	})
+	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", stale, "integration_token")
+	if response.Code != http.StatusOK || !jsonBodyHasField(response.Body, "outcome", "ignored_stale") {
+		t.Fatalf("expected stale email event to be ignored, got %d: %s", response.Code, response.Body)
+	}
+
+	var managed GatewayManagedUser
+	if err := store.db.First(&managed, "external_principal_id = ?", "profile_stale").Error; err != nil {
+		t.Fatal(err)
+	}
+	var user AdminUser
+	if err := store.db.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if user.Email != "current@example.test" || user.Name != "Current user" {
+		t.Fatalf("stale event changed managed user: %+v", user)
+	}
+}
+
+func TestGatewayManagedUserAcceptsSameVersionInitialEmail(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_enrichment", "tenant.created", "tenant", "tenant_enrichment", "tenant_enrichment", 1, map[string]interface{}{
+		"externalId": "tenant_enrichment", "name": "Enrichment tenant", "status": "active",
+	}))
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_member_without_email", "tenant_member.added", "tenant_member", "member_enrichment", "tenant_enrichment", 1, map[string]interface{}{
+		"externalId": "member_enrichment", "principalExternalId": "profile_enrichment", "name": "Enriched user", "status": "active",
+	}))
+
+	enriched := gatewayIntegrationEvent("evt_member_with_email", "tenant_member.updated", "tenant_member", "member_enrichment", "tenant_enrichment", 1, map[string]interface{}{
+		"externalId": "member_enrichment", "principalExternalId": "profile_enrichment", "name": "Enriched user", "email": "enriched@example.test", "status": "active",
+	})
+	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", enriched, "integration_token")
+	if response.Code != http.StatusOK || !jsonBodyHasField(response.Body, "outcome", "ignored_stale") {
+		t.Fatalf("expected same-version initial email enrichment, got %d: %s", response.Code, response.Body)
+	}
+
+	var managed GatewayManagedUser
+	if err := store.db.First(&managed, "external_principal_id = ?", "profile_enrichment").Error; err != nil {
+		t.Fatal(err)
+	}
+	var user AdminUser
+	if err := store.db.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if user.Email != "enriched@example.test" || user.Name != "Enriched user" {
+		t.Fatalf("same-version enrichment did not create managed user: %+v", user)
+	}
+}
