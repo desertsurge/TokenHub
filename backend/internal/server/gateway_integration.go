@@ -1047,9 +1047,9 @@ func applyGatewayProject(tx *gorm.DB, event GatewayIntegrationEvent, now time.Ti
 	if _, supplied := event.Payload["ownerExternalId"]; supplied {
 		ownerID = ""
 		if externalID := payloadString(event.Payload, "ownerExternalId"); externalID != "" {
-			var owner GatewayPrincipal
-			if err := tx.First(&owner, "tenant_id = ? AND external_principal_id = ?", tenant.ID, externalID).Error; err != nil {
-				return "", "project", 0, "", NewHTTPError(http.StatusConflict, "integration_dependency_missing", "Gateway owner projection is not available")
+			owner, err := requireGatewayProjectOwner(tx, tenant, externalID)
+			if err != nil {
+				return "", "project", 0, "", err
 			}
 			ownerID = owner.ID
 		}
@@ -1108,20 +1108,11 @@ func syncGatewayServingProject(tx *gorm.DB, projection GatewayProject, now time.
 		project.CreatedAt = now
 	}
 	project.Name = projection.Name
-	project.OwnerUserID = ""
-	if projection.OwnerPrincipalID != "" {
-		var principal GatewayPrincipal
-		if err := tx.First(&principal, "id = ?", projection.OwnerPrincipalID).Error; err == nil {
-			var managed GatewayManagedUser
-			if err := tx.First(&managed, "external_principal_id = ?", principal.ExternalPrincipalID).Error; err == nil {
-				project.OwnerUserID = managed.AdminUserID
-			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
+	ownerUserID, ownerReady, err := gatewayServingProjectOwner(tx, projection)
+	if err != nil {
+		return err
 	}
+	project.OwnerUserID = ownerUserID
 	project.TeamID = ""
 	// Persist the parent row before creating project_teams. PostgreSQL enforces
 	// the project_teams foreign key immediately for newly projected projects.
@@ -1165,6 +1156,9 @@ func syncGatewayServingProject(tx *gorm.DB, projection GatewayProject, now time.
 	project.Status = StatusDisabled
 	if projection.Status == StatusActive {
 		project.Status = StatusActive
+	}
+	if projection.OwnerPrincipalID != "" && !ownerReady {
+		project.Status = StatusDisabled
 	}
 	project.UpdatedAt = now
 	return tx.Save(&project).Error

@@ -1228,6 +1228,7 @@ func seedGatewayModelAccessKeyScope(t *testing.T, app http.Handler) {
 			"externalId":          "membership_01",
 			"principalExternalId": "user_01",
 			"name":                "张晨",
+			"email":               "user-01@example.com",
 		}),
 		gatewayIntegrationEvent("evt_scope_project", "project.created", "project", "project_01", "tenant_01", 1, map[string]interface{}{
 			"externalId":      "project_01",
