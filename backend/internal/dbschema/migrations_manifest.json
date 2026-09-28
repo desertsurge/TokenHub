@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "baselines": {
-    "postgres": "e4739a63bcbf8024da2a456a48010610fc80a886301eb3ee45c10cd855454bbc",
-    "sqlite": "026f2df1ce6a7bc43b866132b5df7a9c3679ad8b0b261ee4c4b7feb5c5c46bad"
+    "postgres": "f43e5f399fc77aa71ab19670b674a3a8c169dad997cf933c4f87e9c792e2052c",
+    "sqlite": "ea8eca4b494d9362f1d06a9aec295c1cd6f453e0c8e3ae5a873545ff3a8308dd"
   },
   "migrations": [
     {
@@ -65,6 +65,51 @@
       "phase": "expand",
       "dialect": "",
       "checksum": "tokenhub-schema-gateway-integration-storage-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 10
+    },
+    {
+      "version": 9,
+      "name": "add-gateway-managed-users",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-gateway-managed-users-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 4
+    },
+    {
+      "version": 10,
+      "name": "add-admin-oauth-oidc-nonce",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-admin-oauth-oidc-nonce-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 1
+    },
+    {
+      "version": 11,
+      "name": "add-gateway-cost-center-projections",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-gateway-cost-center-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 40
+    },
+    {
+      "version": 12,
+      "name": "add-gateway-organization-primary",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-gateway-organization-primary-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 3
+    },
+    {
+      "version": 13,
+      "name": "add-usage-cost-center-snapshot",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-usage-cost-center-snapshot-v1",
       "lock_timeout_seconds": 30,
       "statement_budget": 10
     }
