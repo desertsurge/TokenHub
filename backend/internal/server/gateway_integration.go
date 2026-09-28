@@ -1069,9 +1069,14 @@ func syncGatewayServingProject(tx *gorm.DB, projection GatewayProject, now time.
 	project.Name = projection.Name
 	project.OwnerUserID = ""
 	if projection.OwnerPrincipalID != "" {
-		var managed GatewayManagedUser
-		if err := tx.First(&managed, "external_principal_id = ?", projection.OwnerPrincipalID).Error; err == nil {
-			project.OwnerUserID = managed.AdminUserID
+		var principal GatewayPrincipal
+		if err := tx.First(&principal, "id = ?", projection.OwnerPrincipalID).Error; err == nil {
+			var managed GatewayManagedUser
+			if err := tx.First(&managed, "external_principal_id = ?", principal.ExternalPrincipalID).Error; err == nil {
+				project.OwnerUserID = managed.AdminUserID
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}

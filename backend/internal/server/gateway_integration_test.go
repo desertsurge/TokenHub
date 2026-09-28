@@ -432,8 +432,15 @@ func TestGatewayCostCenterProjectionRequiresDependenciesAndAssociatesProjects(t 
 		t.Fatalf("expected project cost center and organization association, got %+v", projection)
 	}
 	serving, found := store.GetProject(projection.ID)
-	if !found || serving.CostCenter != "CC-ENG" || serving.OwnerUserID == "" || serving.TeamID == "" {
+	if !found || serving.CostCenter != "CC-ENG" || serving.TeamID == "" {
 		t.Fatalf("expected serving project cost center code, found=%v project=%+v", found, serving)
+	}
+	var managed GatewayManagedUser
+	if err := store.db.First(&managed, "external_principal_id = ?", "principal_cc").Error; err != nil {
+		t.Fatal(err)
+	}
+	if serving.OwnerUserID != managed.AdminUserID {
+		t.Fatalf("expected serving project owner %q, got %q", managed.AdminUserID, serving.OwnerUserID)
 	}
 	var servingTeam AdminResource
 	if err := store.db.First(&servingTeam, "kind = ? AND id = ?", "teams", serving.TeamID).Error; err != nil {
