@@ -684,11 +684,11 @@ textarea:focus-visible {
 }
 
 .login-sso-list.multi {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.login-sso-list.multi.count-2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.login-sso-list.multi.count-3 .login-sso-button:last-child {
+  grid-column: 1 / -1;
 }
 
 .login-sso-button {
@@ -709,8 +709,9 @@ textarea:focus-visible {
 }
 
 .login-sso-list.multi .login-sso-button {
-  height: 50px;
-  padding: 0 8px;
+  height: auto;
+  min-height: 50px;
+  padding: 8px;
   gap: 7px;
 }
 
@@ -786,9 +787,9 @@ textarea:focus-visible {
 
 .login-sso-label {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: normal;
 }
 
 .login-sso-list.multi .login-sso-label {

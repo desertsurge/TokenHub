@@ -457,7 +457,7 @@ export const enTranslations: Record<string, string> = {
     "删除失败": "Delete failed",
     "导出失败": "Export failed",
     "连接失败": "Connection failed",
-    "登录失败": "Login failed", "OAuth 登录失败": "OAuth login failed",
+    "登录失败": "Login failed", "OAuth 登录失败": "OAuth login failed", "安全登录需要 HTTPS；请联系管理员为控制台配置 HTTPS 后重试。": "Secure sign-in requires HTTPS. Ask an administrator to configure HTTPS for the console and try again.",
     "数据加载中，请稍后再操作。": "Data is loading. Please try again later.",
     "请先创建项目，再在项目下发放 API Key。": "Create a project before issuing an API key.",
     "请先新增 Provider 渠道，再配置路由策略。": "Create a Provider channel before configuring routing policies.",

@@ -4,7 +4,7 @@ import { savePendingOAuthLogin } from "../core/session";
 import { type AppData, type LoginIdentityProvider, type PluginDescriptor, viewRoutes } from "../core/types";
 import { stringifyValue } from "../domain/entities";
 import { identityProviderIconLabel } from "../domain/labels";
-import { buildOAuthLoginStartURL, createOAuthLoginPKCE } from "../domain/oauth-login";
+import { buildOAuthLoginStartURL, createOAuthLoginPKCE, oauthLoginStartErrorMessage } from "../domain/oauth-login";
 import { LanguageSelect } from "../i18n/language-switcher";
 import { activeLanguage, type AppLanguage, tx } from "../i18n/runtime";
 
@@ -721,7 +721,7 @@ export function LoginView({
   const ssoListClassName = [
     "login-sso-list",
     identityProviders.length > 1 ? "multi" : "",
-    identityProviders.length > 1 ? `count-${Math.min(identityProviders.length, 3)}` : "",
+    identityProviders.length === 3 ? "count-3" : "",
   ].filter(Boolean).join(" ");
   const headlineParts = tx("统一管理企业 {ai} Token").split("{ai}");
   const dashboardPreviewSrc =
@@ -853,9 +853,9 @@ export function LoginView({
                           const pkce = await createOAuthLoginPKCE();
                           savePendingOAuthLogin(baseURL, pkce.codeVerifier);
                           window.location.assign(identityProviderLoginURL(baseURL, provider, oauthReturnURL, pkce.codeChallenge));
-                        } catch {
+                        } catch (error) {
                           ssoStarting.current = false;
-                          setSSOError(tx("OAuth 登录失败"));
+                          setSSOError(tx(oauthLoginStartErrorMessage(error)));
                           setSSOLoading(false);
                         }
                       }}

@@ -8,6 +8,7 @@ const {
   buildOAuthLoginStartURL,
   createOAuthLoginPKCE,
   exchangeOAuthLoginCode,
+  oauthLoginStartErrorMessage,
   oauthCodeChallenge,
   parseOAuthLoginResult,
   readPendingOAuthLoginState,
@@ -87,6 +88,14 @@ test("creates an S256 PKCE pair and OAuth start URL", async () => {
   assert.equal(startURL.searchParams.get("return_url"), "https://console.example.test/overview");
   assert.equal(startURL.searchParams.get("code_challenge"), pair.codeChallenge);
   assert.equal(startURL.searchParams.get("code_challenge_method"), "S256");
+});
+
+test("explains when secure browser crypto is unavailable", () => {
+  assert.equal(
+    oauthLoginStartErrorMessage(new Error("Web Crypto is unavailable")),
+    "安全登录需要 HTTPS；请联系管理员为控制台配置 HTTPS 后重试。",
+  );
+  assert.equal(oauthLoginStartErrorMessage(new Error("digest failed")), "OAuth 登录失败");
 });
 
 test("stores only a valid PKCE-bound pending login", () => {

@@ -74,6 +74,13 @@ export async function createOAuthLoginPKCE(cryptoProvider: OAuthCrypto = globalT
   return { codeVerifier, codeChallenge };
 }
 
+export function oauthLoginStartErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message === "Web Crypto is unavailable") {
+    return "安全登录需要 HTTPS；请联系管理员为控制台配置 HTTPS 后重试。";
+  }
+  return "OAuth 登录失败";
+}
+
 export async function oauthCodeChallenge(codeVerifier: string, cryptoProvider: OAuthCrypto = globalThis.crypto): Promise<string> {
   if (!isOAuthCodeVerifier(codeVerifier) || !cryptoProvider?.subtle) {
     throw new Error("Invalid OAuth code verifier");

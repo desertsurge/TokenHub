@@ -59,6 +59,23 @@ describe("LoginView", () => {
     expect(sso).toHaveAttribute("href", expect.stringContaining("/api/admin/auth/oauth/start"));
     expect(sso).toHaveAttribute("href", expect.stringContaining("id=idp_google"));
   });
+
+  it("uses a two-column SSO layout with a full-width third provider", () => {
+    const { container } = render(
+      <LoginView
+        {...baseProps}
+        identityProviders={[
+          { id: "idp_one", name: "Provider One", provider_type: "oidc" },
+          { id: "idp_two", name: "Provider Two", provider_type: "oidc" },
+          { id: "idp_three", name: "Managed Enterprise Identity Provider", provider_type: "oidc" },
+        ]}
+        onLogin={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector(".login-sso-list")).toHaveClass("multi", "count-3");
+    expect(screen.getByText("Managed Enterprise Identity Provider")).toBeVisible();
+  });
 });
 
 describe("identity provider template plugins", () => {
