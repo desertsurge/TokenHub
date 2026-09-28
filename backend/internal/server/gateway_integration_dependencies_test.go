@@ -65,7 +65,8 @@ func TestGatewayIntegrationDependenciesRequireProjection(t *testing.T) {
 		t.Fatalf("principal projection update failed: status=%d body=%s", response.Code, response.Body)
 	}
 	versionReady := doJSON(t, app, http.MethodGet, principalPath+"&tenant_version=2&principal_version=2", nil, "integration_token")
-	if versionReady.Code != http.StatusOK || !strings.Contains(versionReady.Body, `"ready":true`) {
+	if versionReady.Code != http.StatusOK || !strings.Contains(versionReady.Body, `"ready":true`) ||
+		!strings.Contains(versionReady.Body, `"tenant_version":2`) || !strings.Contains(versionReady.Body, `"principal_version":2`) {
 		t.Fatalf("current projection version was rejected: status=%d body=%s", versionReady.Code, versionReady.Body)
 	}
 	invalidVersion := doJSON(t, app, http.MethodGet, principalPath+"&principal_version=0", nil, "integration_token")

@@ -9,12 +9,14 @@ import (
 )
 
 type GatewayIntegrationDependencyReadiness struct {
-	Ready          bool   `json:"ready"`
-	TenantID       string `json:"tenant_id"`
-	ProjectID      string `json:"project_id,omitempty"`
-	PrincipalType  string `json:"principal_type"`
-	PrincipalID    string `json:"principal_id"`
-	DependencyCode string `json:"dependency_code,omitempty"`
+	Ready            bool   `json:"ready"`
+	TenantID         string `json:"tenant_id"`
+	ProjectID        string `json:"project_id,omitempty"`
+	PrincipalType    string `json:"principal_type"`
+	PrincipalID      string `json:"principal_id"`
+	TenantVersion    int64  `json:"tenant_version,omitempty"`
+	PrincipalVersion int64  `json:"principal_version,omitempty"`
+	DependencyCode   string `json:"dependency_code,omitempty"`
 }
 
 type GatewayIntegrationDependencyInput struct {
@@ -93,7 +95,11 @@ func (s *GormStore) CheckGatewayIntegrationDependencies(input GatewayIntegration
 				return err
 			}
 			if tenant.Version < input.MinimumTenantVersion {
+				readiness.TenantVersion = tenant.Version
 				return NewHTTPError(http.StatusConflict, "gateway_tenant_stale", "Gateway tenant projection has not reached the required version")
+			}
+			if input.MinimumTenantVersion > 0 {
+				readiness.TenantVersion = tenant.Version
 			}
 			if err := validateGatewayModelAccessKeyPrincipal(tx, tenant, project, input.GatewayModelAccessKeyCreateInput); err != nil {
 				return err
@@ -101,12 +107,20 @@ func (s *GormStore) CheckGatewayIntegrationDependencies(input GatewayIntegration
 			if input.MinimumPrincipalVersion > 0 {
 				if input.PrincipalType == "user" {
 					var principal GatewayPrincipal
-					if err := tx.First(&principal, "tenant_id = ? AND external_principal_id = ? AND status = ?", tenant.ID, input.PrincipalExternalID, StatusActive).Error; err != nil || principal.Version < input.MinimumPrincipalVersion {
+					if err := tx.First(&principal, "tenant_id = ? AND external_principal_id = ? AND status = ?", tenant.ID, input.PrincipalExternalID, StatusActive).Error; err != nil {
+						return NewHTTPError(http.StatusConflict, "gateway_principal_stale", "Gateway principal projection has not reached the required version")
+					}
+					readiness.PrincipalVersion = principal.Version
+					if principal.Version < input.MinimumPrincipalVersion {
 						return NewHTTPError(http.StatusConflict, "gateway_principal_stale", "Gateway principal projection has not reached the required version")
 					}
 				} else {
 					var workload GatewayWorkload
-					if err := tx.First(&workload, "tenant_id = ? AND external_workload_id = ? AND project_id = ? AND workload_type = ? AND status = ?", tenant.ID, input.PrincipalExternalID, project.ID, input.PrincipalType, StatusActive).Error; err != nil || workload.Version < input.MinimumPrincipalVersion {
+					if err := tx.First(&workload, "tenant_id = ? AND external_workload_id = ? AND project_id = ? AND workload_type = ? AND status = ?", tenant.ID, input.PrincipalExternalID, project.ID, input.PrincipalType, StatusActive).Error; err != nil {
+						return NewHTTPError(http.StatusConflict, "gateway_workload_stale", "Gateway workload projection has not reached the required version")
+					}
+					readiness.PrincipalVersion = workload.Version
+					if workload.Version < input.MinimumPrincipalVersion {
 						return NewHTTPError(http.StatusConflict, "gateway_workload_stale", "Gateway workload projection has not reached the required version")
 					}
 				}
@@ -117,14 +131,22 @@ func (s *GormStore) CheckGatewayIntegrationDependencies(input GatewayIntegration
 				return NewHTTPError(http.StatusConflict, "gateway_tenant_unavailable", "Gateway tenant projection is not active")
 			}
 			if tenant.Version < input.MinimumTenantVersion {
+				readiness.TenantVersion = tenant.Version
 				return NewHTTPError(http.StatusConflict, "gateway_tenant_stale", "Gateway tenant projection has not reached the required version")
+			}
+			if input.MinimumTenantVersion > 0 {
+				readiness.TenantVersion = tenant.Version
 			}
 			var principal GatewayPrincipal
 			if err := tx.First(&principal, "tenant_id = ? AND external_principal_id = ? AND status = ?", tenant.ID, input.PrincipalExternalID, StatusActive).Error; err != nil {
 				return NewHTTPError(http.StatusConflict, "gateway_principal_unavailable", "Gateway principal projection is not active")
 			}
 			if principal.Version < input.MinimumPrincipalVersion {
+				readiness.PrincipalVersion = principal.Version
 				return NewHTTPError(http.StatusConflict, "gateway_principal_stale", "Gateway principal projection has not reached the required version")
+			}
+			if input.MinimumPrincipalVersion > 0 {
+				readiness.PrincipalVersion = principal.Version
 			}
 		}
 		if input.PrincipalType == "user" {
