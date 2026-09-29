@@ -120,7 +120,7 @@
       "dialect": "",
       "checksum": "tokenhub-schema-quota-bucket-tenant-scope-v1",
       "lock_timeout_seconds": 30,
-      "statement_budget": 18
+      "statement_budget": 24
     }
   ]
 }

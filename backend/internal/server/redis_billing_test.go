@@ -44,8 +44,16 @@ func TestRedisBillingSettlesMinuteTokenReservations(t *testing.T) {
 	if _, err := store.StartCall(context.Background(), project, key, "redis-billing-model", 6); err == nil || AsHTTPError(err).Code != "api_key_tpm_exceeded" {
 		t.Fatalf("expected Redis TPM rejection, got %v", err)
 	}
+	minuteUsage, supported, err := store.GetQuotaPolicyUsage("api_key", key.ID)
+	if err != nil || !supported || minuteUsage.Minute.Requests != 1 || minuteUsage.Minute.TotalTokens != 5 {
+		t.Fatalf("Redis minute usage was not visible before settlement: usage=%+v supported=%t err=%v", minuteUsage, supported, err)
+	}
 
 	store.FinishCall(first, RouteSelection{}, Usage{TotalTokens: 3}, http.StatusOK, "", "127.0.0.1", "redis-billing-test")
+	minuteUsage, supported, err = store.GetQuotaPolicyUsage("api_key", key.ID)
+	if err != nil || !supported || minuteUsage.Minute.Requests != 1 || minuteUsage.Minute.TotalTokens != 3 {
+		t.Fatalf("Redis minute usage was not reconciled after settlement: usage=%+v supported=%t err=%v", minuteUsage, supported, err)
+	}
 	second, err := store.StartCall(context.Background(), project, key, "redis-billing-model", 7)
 	if err != nil {
 		t.Fatalf("settled Redis reservation should leave seven tokens: %v", err)

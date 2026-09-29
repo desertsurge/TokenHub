@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -79,6 +80,17 @@ func (s *GormStore) GetQuotaPolicyUsage(scope string, scopeID string, tenantExte
 				return QuotaPolicyUsage{}, false, err
 			}
 			mergeQuotaCounterMax(period.counter, aggregated)
+		}
+		if period.scope == "minute" && s.billingRedis != nil {
+			redisScopeID := bucketID
+			if scope == "user" {
+				redisScopeID = userQuotaBucketKey(scopeID, tenantExternalID)
+			}
+			redisCounter, err := s.billingRedis.minuteCounter(context.Background(), redisScopeID, period.bucket)
+			if err != nil {
+				return QuotaPolicyUsage{}, false, err
+			}
+			mergeQuotaCounterMax(period.counter, redisCounter)
 		}
 	}
 	return usage, true, nil

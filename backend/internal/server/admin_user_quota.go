@@ -11,7 +11,12 @@ func (s *Server) handleAdminUserQuotaGet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	snapshot, err := s.userQuotaSnapshot(user)
+	tenantExternalID, err := s.store.ResolveAdminQuotaTenant(user.ID, r.URL.Query().Get("tenant_id"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	snapshot, err := s.userQuotaSnapshotForTenant(user, tenantExternalID)
 	if err != nil {
 		writeError(w, r, err)
 		return

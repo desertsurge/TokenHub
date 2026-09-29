@@ -559,6 +559,52 @@ func TestUserQuotaUsesUsageAttributionFallbacks(t *testing.T) {
 	}
 }
 
+func TestUserQuotaAppliesToHistoricalGatewayKeyWithoutOwnerUserID(t *testing.T) {
+	store := NewMemoryStore()
+	managedUser, err := store.CreateAdminUser(AdminUser{ID: "usr_gateway_legacy", Username: "gateway-legacy", Email: "gateway-legacy@example.test", Role: "user", Status: StatusActive}, "GatewayLegacy123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&GatewayManagedUser{ExternalPrincipalID: "principal-legacy", AdminUserID: managedUser.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	project := store.CreateProject(Project{ID: "prj_gateway_legacy", Name: "Gateway legacy", OwnerUserID: "usr_project_owner", Status: StatusActive})
+	key, _, err := store.CreateAPIKey(project.ID, APIKey{
+		ID: "key_gateway_legacy", Name: "legacy gateway key", Status: StatusActive,
+		ManagedBy: gatewayModelAccessKeyManagedBy, PrincipalType: "user", PrincipalExternalID: "principal-legacy",
+		Metadata: map[string]string{"requested_by": "usr_project_owner"},
+	}, "thk_gateway_legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key.OwnerUserID != "" {
+		t.Fatalf("test key unexpectedly had an owner before backfill: %q", key.OwnerUserID)
+	}
+	if err := backfillGatewayModelAccessKeyOwnership(store.db); err != nil {
+		t.Fatal(err)
+	}
+	var repairedKey APIKey
+	if err := store.db.First(&repairedKey, "id = ?", key.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if repairedKey.OwnerUserID != managedUser.ID {
+		t.Fatalf("historical gateway key owner = %q, want %q", repairedKey.OwnerUserID, managedUser.ID)
+	}
+	store.CreateResource("quota-policies", AdminResource{ID: "quota_gateway_legacy", Name: "gateway legacy quota", Status: StatusActive, Fields: map[string]any{
+		"scope": "user", "scope_id": managedUser.ID, "daily_requests": int64(1),
+	}})
+	store.AddModel(Model{Name: "gateway-legacy-model", Modality: "chat", Status: StatusActive})
+
+	call, err := store.StartCall(context.Background(), project, key, "gateway-legacy-model", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.FinishCall(call, RouteSelection{}, Usage{}, http.StatusOK, "", "127.0.0.1", "legacy-quota-test")
+	if _, err := store.StartCall(context.Background(), project, key, "gateway-legacy-model", 0); err == nil || AsHTTPError(err).Code != "quota_exceeded" {
+		t.Fatalf("historical gateway key bypassed managed-user quota: %v", err)
+	}
+}
+
 func TestUserQuotaEnforcesUserAndAPIKeyConcurrencyTogether(t *testing.T) {
 	store, project, keyA, keyB := setupUserQuotaTest(t, map[string]any{"max_concurrency": 2})
 	for _, key := range []APIKey{keyA, keyB} {

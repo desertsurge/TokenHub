@@ -25,7 +25,8 @@ local user_tpm = tonumber(ARGV[9]) or 0
 local user_reserved = tonumber(ARGV[10]) or 0
 local user_concurrency = tonumber(ARGV[11]) or 0
 local user_lease_id = ARGV[12]
-local lease_expires_ms = tonumber(ARGV[13]) or 0
+local user_enabled = ARGV[13] == "1"
+local lease_expires_ms = tonumber(ARGV[14]) or 0
 
 local function current_counter(key)
   return tonumber(redis.call("HGET", key, "requests") or "0"), tonumber(redis.call("HGET", key, "tokens") or "0")
@@ -41,7 +42,7 @@ end
 
 local user_requests = 0
 local user_tokens = 0
-if user_rpm > 0 or user_tpm > 0 then
+if user_enabled then
   user_requests, user_tokens = current_counter(KEYS[2])
   if user_rpm > 0 and user_requests >= user_rpm then
     return {"user_rpm", key_requests, key_tokens, user_requests, user_tokens}
@@ -64,23 +65,19 @@ if user_concurrency > 0 then
   end
 end
 
-if key_rpm > 0 then
-  key_requests = redis.call("HINCRBY", KEYS[1], "requests", 1)
-end
-if key_tpm > 0 and key_reserved > 0 then
+key_requests = redis.call("HINCRBY", KEYS[1], "requests", 1)
+if key_reserved > 0 then
   key_tokens = redis.call("HINCRBY", KEYS[1], "tokens", key_reserved)
 end
-if key_rpm > 0 or key_tpm > 0 then
-  redis.call("PEXPIRE", KEYS[1], ttl_ms)
-end
+redis.call("PEXPIRE", KEYS[1], ttl_ms)
 
-if user_rpm > 0 then
+if user_enabled then
   user_requests = redis.call("HINCRBY", KEYS[2], "requests", 1)
 end
-if user_tpm > 0 and user_reserved > 0 then
+if user_enabled and user_reserved > 0 then
   user_tokens = redis.call("HINCRBY", KEYS[2], "tokens", user_reserved)
 end
-if user_rpm > 0 or user_tpm > 0 then
+if user_enabled then
   redis.call("PEXPIRE", KEYS[2], ttl_ms)
 end
 
@@ -160,6 +157,7 @@ type redisBillingAdmitParams struct {
 	userLimits       QuotaLimits
 	minuteScopes     MinuteLimitScopes
 	tokenReservation int64
+	userEnabled      bool
 	now              time.Time
 }
 
@@ -222,6 +220,7 @@ func (c *redisBillingCoordinator) admit(ctx context.Context, params redisBilling
 		userReserved,
 		params.userLimits.MaxConcurrency,
 		userConcurrencyLeaseID(params.requestID),
+		boolArg(params.userEnabled),
 		leaseExpires.UnixMilli(),
 	).Slice()
 	if err != nil {
@@ -255,10 +254,7 @@ func (c *redisBillingCoordinator) settle(ctx context.Context, call CallContext, 
 		return nil
 	}
 	delta := maxInt64(actualTokens, 0) - maxInt64(call.ReservedTokens, 0)
-	keyDelta := int64(0)
-	if strings.TrimSpace(call.TokenLimitBucket) != "" {
-		keyDelta = delta
-	}
+	keyDelta := delta
 	keys := []string{
 		redisBillingSettledKey(call.RequestID),
 		redisBillingMinuteKey(call.Key.ID, call.TokenLimitBucket),
@@ -267,7 +263,7 @@ func (c *redisBillingCoordinator) settle(ctx context.Context, call CallContext, 
 		redisBillingLeaseKey("user", call.UserQuotaID),
 	}
 	userDelta := int64(0)
-	if strings.TrimSpace(call.UserTokenLimitBucket) != "" {
+	if call.UserQuotaEnabled {
 		userDelta = delta
 	}
 	if err := redisBillingSettleScript.Run(ctx, c.client, keys,
@@ -287,20 +283,14 @@ func (c *redisBillingCoordinator) rollback(ctx context.Context, call CallContext
 	if c == nil || !call.RedisBillingAdmitted || strings.TrimSpace(call.RequestID) == "" {
 		return nil
 	}
-	keyRequests := int64(0)
-	if call.MinuteRequestHeld {
-		keyRequests = 1
-	}
+	keyRequests := int64(1)
 	userRequests := int64(0)
-	if call.UserMinuteRequestHeld {
+	if call.UserQuotaEnabled {
 		userRequests = 1
 	}
-	keyTokens := int64(0)
-	if strings.TrimSpace(call.TokenLimitBucket) != "" {
-		keyTokens = maxInt64(call.ReservedTokens, 0)
-	}
+	keyTokens := maxInt64(call.ReservedTokens, 0)
 	userTokens := int64(0)
-	if strings.TrimSpace(call.UserTokenLimitBucket) != "" {
+	if call.UserQuotaEnabled {
 		userTokens = maxInt64(call.ReservedTokens, 0)
 	}
 	if err := redisBillingRollbackScript.Run(ctx, c.client, []string{
@@ -321,6 +311,34 @@ func (c *redisBillingCoordinator) rollback(ctx context.Context, call CallContext
 		return fmt.Errorf("rollback Redis billing reservation request=%s: %w", call.RequestID, err)
 	}
 	return nil
+}
+
+func boolArg(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
+}
+
+func (c *redisBillingCoordinator) minuteCounter(ctx context.Context, scopeID, bucket string) (QuotaCounter, error) {
+	if c == nil || strings.TrimSpace(scopeID) == "" || strings.TrimSpace(bucket) == "" {
+		return QuotaCounter{}, nil
+	}
+	values, err := c.client.HMGet(ctx, redisBillingMinuteKey(scopeID, bucket), "requests", "tokens").Result()
+	if err != nil {
+		return QuotaCounter{}, err
+	}
+	return QuotaCounter{
+		Requests:    redisValueInt64(values, 0),
+		TotalTokens: redisValueInt64(values, 1),
+	}, nil
+}
+
+func redisValueInt64(values []any, index int) int64 {
+	if index >= len(values) || values[index] == nil {
+		return 0
+	}
+	return redisBillingResult{values[index]}.int64At(0)
 }
 
 func (c *redisBillingCoordinator) renewLease(ctx context.Context, scopeType string, scopeID string, leaseID string) (time.Duration, bool, error) {

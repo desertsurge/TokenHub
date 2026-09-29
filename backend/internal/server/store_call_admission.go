@@ -247,6 +247,7 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 			userLimits:       userPolicy.Limits,
 			minuteScopes:     minuteLimitScopes,
 			tokenReservation: tokenReservation,
+			userEnabled:      userPolicy.Enabled(),
 			now:              now,
 		})
 		if redisErr != nil {
@@ -256,6 +257,14 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 		admission.call.RedisBillingAdmitted = true
 		minuteCounter = redisCounters.keyCounter
 		userMinuteCounter = redisCounters.userCounter
+		// Redis keeps the current-minute display counter even when no minute
+		// limit is configured. Retain the reservation on the call so settlement
+		// and rollback can reconcile that counter exactly once.
+		admission.call.ReservedTokens = maxInt64(tokenReservation, 0)
+		admission.call.TokenLimitBucket = minuteBucket(now)
+		if userPolicy.Enabled() {
+			admission.call.UserTokenLimitBucket = minuteBucket(now)
+		}
 	}
 	dayCounter.Requests++
 	monthCounter.Requests++

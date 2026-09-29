@@ -640,7 +640,7 @@ func quotaPolicyLimits(tx *gorm.DB, project Project, key APIKey) (QuotaLimits, M
 			scope = strings.ToLower(strings.TrimSpace(stringField(resource.Fields, "scope_type")))
 		}
 		scopeID := strings.TrimSpace(stringField(resource.Fields, "scope_id"))
-		if !quotaPolicyApplies(scope, scopeID, project, key) {
+		if !quotaPolicyApplies(scope, scopeID, project, key, attributedUserID) {
 			continue
 		}
 		if scope == "user" {
@@ -785,7 +785,7 @@ func normalizedQuotaPolicyScope(scope string) string {
 	}
 }
 
-func quotaPolicyApplies(scope string, scopeID string, project Project, key APIKey) bool {
+func quotaPolicyApplies(scope string, scopeID string, project Project, key APIKey, attributedUserID string) bool {
 	if scope == "" || scope == "global" || scope == "organization" {
 		return scopeID == "" || scopeID == "default" || scopeID == "global"
 	}
@@ -797,7 +797,7 @@ func quotaPolicyApplies(scope string, scopeID string, project Project, key APIKe
 	case "team":
 		return scopeID == "" || scopeID == project.TeamID
 	case "user":
-		return scopeID != "" && scopeID == usageAttributionUserID(key, project)
+		return scopeID != "" && scopeID == strings.TrimSpace(attributedUserID)
 	default:
 		return false
 	}

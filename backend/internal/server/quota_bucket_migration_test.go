@@ -111,3 +111,44 @@ PRIMARY KEY (key_id, scope, bucket)
 		t.Fatalf("adopted legacy quota row = %+v", row)
 	}
 }
+
+func TestBackfillAsyncJobTenantAttribution(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{ID: "prj_job_tenant", Name: "Job tenant", Status: StatusActive})
+	key, _, err := store.CreateAPIKey(project.ID, APIKey{ID: "key_job_tenant", TenantExternalID: "tenant-job", Status: StatusActive}, "thk_job_tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&ImageJob{ID: "img_job_tenant", ProjectID: project.ID, APIKeyID: key.ID, Status: imageJobStatusQueued}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&ResponseJob{ID: "resp_job_tenant", ProjectID: project.ID, APIKeyID: key.ID, Status: responseJobStatusQueued, Phase: responseJobPhaseQueued}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&ResponseJob{ID: "resp_job_unknown", ProjectID: project.ID, APIKeyID: "deleted-key", Status: responseJobStatusQueued, Phase: responseJobPhaseQueued}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := backfillAsyncJobTenantAttribution(store.db); err != nil {
+		t.Fatal(err)
+	}
+	var image ImageJob
+	if err := store.db.First(&image, "id = ?", "img_job_tenant").Error; err != nil {
+		t.Fatal(err)
+	}
+	if image.TenantExternalID != "tenant-job" {
+		t.Fatalf("image job tenant = %q, want tenant-job", image.TenantExternalID)
+	}
+	var response ResponseJob
+	if err := store.db.First(&response, "id = ?", "resp_job_tenant").Error; err != nil {
+		t.Fatal(err)
+	}
+	if response.TenantExternalID != "tenant-job" {
+		t.Fatalf("response job tenant = %q, want tenant-job", response.TenantExternalID)
+	}
+	if err := store.db.First(&response, "id = ?", "resp_job_unknown").Error; err != nil {
+		t.Fatal(err)
+	}
+	if response.TenantExternalID != unattributedTenantExternalID {
+		t.Fatalf("deleted-key response job tenant = %q, want unassigned marker", response.TenantExternalID)
+	}
+}

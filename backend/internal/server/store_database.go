@@ -261,6 +261,12 @@ func newStoreWithDialect(databaseURL string, config Config, publishHeartbeat boo
 		if err := backfillQuotaBucketTenant(db); err != nil {
 			return err
 		}
+		if err := backfillGatewayModelAccessKeyOwnership(db); err != nil {
+			return err
+		}
+		if err := backfillAsyncJobTenantAttribution(db); err != nil {
+			return err
+		}
 		return backfillRoutingPolicyBindingKeys(db)
 	}
 	var instanceHeartbeatID string
@@ -456,19 +462,27 @@ func backfillQuotaBucketAttribution(db *gorm.DB) error {
 }
 
 // backfillQuotaBucketTenant restores tenant ownership for API-key buckets that
-// predate the persisted tenant column. A deleted key cannot be reconstructed,
-// but retaining the tenant on every new bucket keeps future history stable.
+// predate the persisted tenant column. A deleted key cannot be reconstructed;
+// those rows receive a reserved unassigned marker instead of a guessed tenant.
 func backfillQuotaBucketTenant(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&APIKey{}) {
 		return nil
 	}
-	return db.Exec(`
+	if err := db.Exec(`
 UPDATE quota_buckets
 SET tenant_external_id = (
     SELECT tenant_external_id FROM api_keys WHERE api_keys.id = quota_buckets.key_id
 )
+WHERE (tenant_external_id IS NULL OR tenant_external_id = '' OR tenant_external_id = ?)
+  AND EXISTS (SELECT 1 FROM api_keys WHERE api_keys.id = quota_buckets.key_id AND api_keys.tenant_external_id <> '')`, unattributedTenantExternalID).Error; err != nil {
+		return err
+	}
+	return db.Exec(`
+UPDATE quota_buckets
+SET tenant_external_id = ?
 WHERE (tenant_external_id IS NULL OR tenant_external_id = '')
-  AND EXISTS (SELECT 1 FROM api_keys WHERE api_keys.id = quota_buckets.key_id AND api_keys.tenant_external_id <> '')`).Error
+  AND key_id NOT LIKE 'user:%'
+  AND NOT EXISTS (SELECT 1 FROM api_keys WHERE api_keys.id = quota_buckets.key_id)`, unattributedTenantExternalID).Error
 }
 
 // Close releases the primary and analytics database pools owned by the store.

@@ -84,3 +84,46 @@ func (s *GormStore) ResolveGatewayManagedQuotaUser(tenantExternalID, principalEx
 	}
 	return publicAdminUser(user), nil
 }
+
+// ResolveAdminQuotaTenant binds the admin self-service quota view to an
+// authenticated gateway membership. A caller may select a tenant only when
+// the managed user has an active membership in that tenant; ambiguous
+// multi-tenant sessions must not silently aggregate usage across tenants.
+func (s *GormStore) ResolveAdminQuotaTenant(userID, requestedTenantID string) (string, error) {
+	userID = strings.TrimSpace(userID)
+	requestedTenantID = strings.TrimSpace(requestedTenantID)
+	if userID == "" {
+		return "", NewHTTPError(http.StatusUnauthorized, "invalid_admin_user", "Authenticated user is missing an ID")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var tenantIDs []string
+	err := s.db.Table("gateway_tenants AS gt").
+		Select("DISTINCT gt.external_tenant_id").
+		Joins("JOIN gateway_principals AS gp ON gp.tenant_id = gt.id").
+		Joins("JOIN gateway_managed_users AS gm ON gm.external_principal_id = gp.external_principal_id AND gm.admin_user_id = ?", userID).
+		Where("gp.status = ? AND gp.deleted_at IS NULL AND gt.status = ? AND gt.deleted_at IS NULL AND gt.external_tenant_id <> ''", StatusActive, StatusActive).
+		Order("gt.external_tenant_id ASC").Pluck("gt.external_tenant_id", &tenantIDs).Error
+	if err != nil {
+		return "", err
+	}
+	if requestedTenantID != "" {
+		for _, tenantID := range tenantIDs {
+			if tenantID == requestedTenantID {
+				return requestedTenantID, nil
+			}
+		}
+		return "", NewHTTPError(http.StatusForbidden, "tenant_context_forbidden", "Authenticated user is not an active member of the requested tenant")
+	}
+	switch len(tenantIDs) {
+	case 0:
+		// Local users and legacy records have no gateway tenant context. Their
+		// historical unscoped quota remains readable without inventing one.
+		return "", nil
+	case 1:
+		return tenantIDs[0], nil
+	default:
+		return "", NewHTTPError(http.StatusConflict, "tenant_context_required", "A tenant_id is required when the user belongs to multiple tenants")
+	}
+}

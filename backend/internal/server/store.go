@@ -27,6 +27,11 @@ type QuotaBucket struct {
 	QuotaCounter
 }
 
+// unattributedTenantExternalID is a reserved marker for durable records whose
+// API key was deleted before tenant ownership was persisted. It is never a
+// valid external tenant and is excluded from tenant-scoped aggregation.
+const unattributedTenantExternalID = "__tokenhub_unattributed__"
+
 // InFlightLease makes concurrency enforcement visible to every backend
 // instance. Leases are renewed by the owning process and expire automatically
 // after a crash so capacity cannot remain permanently wedged.
@@ -115,6 +120,7 @@ type Store interface {
 	ApplyGatewayIntegrationEvent(event GatewayIntegrationEvent) (GatewayIntegrationApplyResult, error)
 	IsGatewayManagedAdminUser(userID string) bool
 	ResolveGatewayManagedQuotaUser(tenantExternalID, principalExternalID string) (AdminUser, error)
+	ResolveAdminQuotaTenant(userID string, requestedTenantID string) (string, error)
 	ResolveGatewayManagedOIDCUser(principalID, tenantExternalID, issuer, subject string) (AdminUser, error)
 	GetGatewayIntegrationReconciliation(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error)
 	GetGatewayIntegrationReconciliationWithDetails(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error)
