@@ -179,8 +179,18 @@ type QuotaCounter struct {
 }
 
 type QuotaPolicyUsage struct {
+	Minute  QuotaCounter `json:"minute"`
 	Daily   QuotaCounter `json:"daily"`
 	Monthly QuotaCounter `json:"monthly"`
+}
+
+// UserQuotaSnapshot is the self-service quota view. It is intentionally
+// scoped by the authenticated session rather than accepting a user ID.
+type UserQuotaSnapshot struct {
+	UserID           string           `json:"user_id"`
+	PolicyConfigured bool             `json:"policy_configured"`
+	Limits           QuotaLimits      `json:"limits"`
+	Usage            QuotaPolicyUsage `json:"usage"`
 }
 
 type Model struct {
@@ -565,6 +575,7 @@ type ImageJob struct {
 	ID                                                          string     `json:"id" gorm:"primaryKey"`
 	ProjectID                                                   string     `json:"project_id" gorm:"index"`
 	APIKeyID                                                    string     `json:"api_key_id" gorm:"index"`
+	TenantExternalID                                            string     `json:"-" gorm:"index"`
 	AttributedUserID                                            string     `json:"attributed_user_id,omitempty" gorm:"index"`
 	RequestID                                                   string     `json:"request_id,omitempty" gorm:"index"`
 	UserQuotaEnabled                                            bool       `json:"-"`
@@ -622,6 +633,7 @@ type ResponseJob struct {
 	ID                                                          string     `json:"id" gorm:"primaryKey"`
 	ProjectID                                                   string     `json:"project_id" gorm:"index"`
 	APIKeyID                                                    string     `json:"api_key_id" gorm:"index"`
+	TenantExternalID                                            string     `json:"-" gorm:"index"`
 	AttributedUserID                                            string     `json:"attributed_user_id,omitempty" gorm:"index"`
 	UserQuotaEnabled                                            bool       `json:"-"`
 	UserMinuteRequestHeld                                       bool       `json:"-"`

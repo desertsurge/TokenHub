@@ -1,6 +1,9 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 type adminResourceCollectionHandler func(http.ResponseWriter, *http.Request, AdminUser, string)
 type adminResourceItemHandler func(http.ResponseWriter, *http.Request, AdminUser, string, string)
@@ -71,7 +74,11 @@ func (s *Server) attachQuotaPolicyUsage(items []AdminResource) []AdminResource {
 	for index := range items {
 		scope := firstStringField(items[index].Fields, "scope", "scope_type")
 		scopeID := firstStringField(items[index].Fields, "scope_id")
-		usage, supported, err := s.store.GetQuotaPolicyUsage(scope, scopeID)
+		tenantExternalID := ""
+		if strings.EqualFold(strings.TrimSpace(scope), "user") {
+			tenantExternalID = firstStringField(items[index].Fields, "tenant_id", "tenant_external_id")
+		}
+		usage, supported, err := s.store.GetQuotaPolicyUsage(scope, scopeID, tenantExternalID)
 		if err != nil || !supported {
 			continue
 		}

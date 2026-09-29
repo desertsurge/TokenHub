@@ -23,6 +23,7 @@ type QuotaBucket struct {
 	Scope            string `gorm:"primaryKey"`
 	Bucket           string `gorm:"primaryKey;index"`
 	AttributedUserID string `gorm:"primaryKey;index;default:__tokenhub_unattributed__"`
+	TenantExternalID string `gorm:"index"`
 	QuotaCounter
 }
 
@@ -113,6 +114,7 @@ type Store interface {
 	ReconciliationStore
 	ApplyGatewayIntegrationEvent(event GatewayIntegrationEvent) (GatewayIntegrationApplyResult, error)
 	IsGatewayManagedAdminUser(userID string) bool
+	ResolveGatewayManagedQuotaUser(tenantExternalID, principalExternalID string) (AdminUser, error)
 	ResolveGatewayManagedOIDCUser(principalID, tenantExternalID, issuer, subject string) (AdminUser, error)
 	GetGatewayIntegrationReconciliation(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error)
 	GetGatewayIntegrationReconciliationWithDetails(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error)
@@ -247,7 +249,7 @@ type Store interface {
 	ListResourcesContext(ctx context.Context, kind string) ([]AdminResource, error)
 	UpdateResource(kind string, id string, patch AdminResource) (AdminResource, error)
 	DeleteResource(kind string, id string) error
-	GetQuotaPolicyUsage(scope string, scopeID string) (QuotaPolicyUsage, bool, error)
+	GetQuotaPolicyUsage(scope string, scopeID string, tenantExternalID ...string) (QuotaPolicyUsage, bool, error)
 	DeleteTeam(id string) error
 	RunMonitor(id string) (MonitorRunResult, error)
 	CreateApprovalRequest(request ApprovalRequest) ApprovalRequest

@@ -15,6 +15,7 @@ export type LoadPlan = {
   approvals: boolean;
   sqliteBackups: boolean;
   dailyUsage: boolean;
+  userQuota: boolean;
   breakdown: boolean;
   timeseries: boolean;
   users: boolean;
@@ -54,6 +55,7 @@ export function emptyLoadPlan(): LoadPlan {
     approvals: false,
     sqliteBackups: false,
     dailyUsage: false,
+    userQuota: false,
     breakdown: false,
     timeseries: false,
     users: false,
@@ -120,6 +122,7 @@ export function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       plan.overview = true;
       plan.keys = can("api-keys");
       plan.dailyUsage = true;
+      plan.userQuota = true;
       plan.breakdown = true;
       plan.timeseries = true;
       plan.users = can("users") || appRole(user.role) === "team_leader";
@@ -304,6 +307,7 @@ export function mergeLoadedData(current: AppData, loaded: LoadedData): AppData {
     users: loaded.users ?? current.users,
     breakdown: loaded.breakdown ?? current.breakdown,
     dailyUsage: loaded.dailyUsage ?? current.dailyUsage,
+    userQuota: loaded.userQuota ?? current.userQuota,
     timeseries: loaded.timeseries ?? current.timeseries,
     keys: loaded.keys ?? current.keys,
     providerCatalog: loaded.providerCatalog ?? current.providerCatalog,

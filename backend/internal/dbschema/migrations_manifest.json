@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "baselines": {
-    "postgres": "f43e5f399fc77aa71ab19670b674a3a8c169dad997cf933c4f87e9c792e2052c",
-    "sqlite": "ea8eca4b494d9362f1d06a9aec295c1cd6f453e0c8e3ae5a873545ff3a8308dd"
+    "postgres": "1418576890584a10b74972ae7b3a634b37428cd7e8d8165c61a28c426ee8a838",
+    "sqlite": "222704edf91dc566cdb6fb907bc009c1fca701faf6f92ae1381204cc790bbfd8"
   },
   "migrations": [
     {
@@ -112,6 +112,15 @@
       "checksum": "tokenhub-schema-usage-cost-center-snapshot-v1",
       "lock_timeout_seconds": 30,
       "statement_budget": 10
+    },
+    {
+      "version": 14,
+      "name": "add-quota-bucket-tenant-scope",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-quota-bucket-tenant-scope-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 18
     }
   ]
 }

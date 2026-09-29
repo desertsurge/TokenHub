@@ -26,6 +26,7 @@ export function emptyData(): AppData {
     users: [],
     breakdown: { projects: [], models: [], members: [], providers: [], provider_resources: [], cost_centers: [] },
     dailyUsage: emptyDailyUsage(),
+    userQuota: emptyUserQuotaSnapshot(),
     timeseries: [],
     resources: {},
     providerCatalog: [],
@@ -70,6 +71,26 @@ export function emptyDailyUsage() {
     window_end: "",
     summary: emptySummary(),
     breakdown: { projects: [], models: [], members: [], providers: [], provider_resources: [], cost_centers: [], api_keys: [] },
+  };
+}
+
+export function emptyUserQuotaSnapshot() {
+  const counter = { requests: 0, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_usd: 0 };
+  return {
+    user_id: "",
+    policy_configured: false,
+    limits: {
+      rate_limit_rpm: 0,
+      token_limit_tpm: 0,
+      daily_requests: 0,
+      monthly_requests: 0,
+      daily_tokens: 0,
+      monthly_tokens: 0,
+      daily_cost_usd: 0,
+      monthly_cost_usd: 0,
+      max_concurrency: 0,
+    },
+    usage: { minute: { ...counter }, daily: { ...counter }, monthly: { ...counter } },
   };
 }
 

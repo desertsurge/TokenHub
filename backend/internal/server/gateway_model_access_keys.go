@@ -196,6 +196,9 @@ func (s *GormStore) CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreat
 	if err := validateNewGatewayModelAccessKeyInput(normalized, time.Now().UTC()); err != nil {
 		return GatewayModelAccessKeyCreateResult{}, err
 	}
+	if err := validateGatewayModelAccessKeyLimits(normalized.Limits); err != nil {
+		return GatewayModelAccessKeyCreateResult{}, err
+	}
 
 	rawSecret := s.generateAPIKeySecret()
 	prefix, suffix := PrefixSuffix(rawSecret)
@@ -224,6 +227,8 @@ func (s *GormStore) CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreat
 		Allowed:              normalized.AllowedModels,
 		IPAllowlist:          normalized.IPAllowlist,
 		Limits:               normalized.Limits,
+		RateLimitRPM:         positiveLimitPointer(normalized.Limits.RateLimitRPM),
+		TokenLimitTPM:        positiveLimitPointer(normalized.Limits.TokenLimitTPM),
 		Status:               StatusActive,
 		ExpiresAt:            normalized.ExpiresAt,
 		CreatedAt:            now,
@@ -252,6 +257,16 @@ func (s *GormStore) CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreat
 		key.ProjectID = project.ID
 		if err := validateGatewayModelAccessKeyPrincipal(tx, tenant, project, normalized); err != nil {
 			return err
+		}
+		if normalized.PrincipalType == "user" {
+			var managed GatewayManagedUser
+			if err := tx.First(&managed, "external_principal_id = ?", normalized.PrincipalExternalID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return NewHTTPError(http.StatusConflict, "gateway_user_unavailable", "Managed gateway user is not available")
+				}
+				return err
+			}
+			key.OwnerUserID = strings.TrimSpace(managed.AdminUserID)
 		}
 		if err := syncGatewayServingProject(tx, project, now); err != nil {
 			return err
@@ -603,6 +618,20 @@ func validateNewGatewayModelAccessKeyInput(input GatewayModelAccessKeyCreateInpu
 		return NewHTTPError(http.StatusBadRequest, "invalid_model_access_key", "Expiration must be in the future")
 	}
 	return nil
+}
+
+func validateGatewayModelAccessKeyLimits(limits QuotaLimits) error {
+	if limits.RateLimitRPM < 0 || limits.TokenLimitTPM < 0 {
+		return NewHTTPError(http.StatusBadRequest, "invalid_model_access_key", "RPM and TPM limits must be zero or greater")
+	}
+	return nil
+}
+
+func positiveLimitPointer(value int64) *int64 {
+	if value <= 0 {
+		return nil
+	}
+	return &value
 }
 
 func gatewayModelAccessKeyControlRequestID(tenantID string, requestID string) string {

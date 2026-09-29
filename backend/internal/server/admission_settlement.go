@@ -21,12 +21,12 @@ func imageJobAdmissionCall(job ImageJob) CallContext {
 	}
 	return CallContext{
 		RequestID:             job.RequestID,
-		Key:                   APIKey{ID: job.APIKeyID},
+		Key:                   APIKey{ID: job.APIKeyID, TenantExternalID: job.TenantExternalID},
 		StartedAt:             startedAt,
 		TokenLimitBucket:      job.TokenLimitBucket,
 		MinuteRequestHeld:     job.MinuteRequestHeld,
 		ReservedTokens:        job.ReservedTokens,
-		UserQuotaID:           userQuotaBucketKey(job.AttributedUserID),
+		UserQuotaID:           userQuotaBucketKey(job.AttributedUserID, job.TenantExternalID),
 		UserQuotaEnabled:      job.UserQuotaEnabled,
 		UserMinuteRequestHeld: job.UserMinuteRequestHeld,
 		UserTokenLimitBucket:  job.UserTokenLimitBucket,

@@ -2,6 +2,7 @@ import type { SemanticRoutingPolicy } from "./semantic-routing-types";
 export type { SemanticRoutingPolicy, SemanticRoutingCandidate } from "./semantic-routing-types";
 import { Activity } from "lucide-react";
 import type { ResourceAction } from "./resource-action";
+import type { UserQuotaSnapshot } from "./quota-types";
 
 export type Summary = {
   request_count: number;
@@ -1442,6 +1443,7 @@ export type AppData = {
   users: AdminUser[];
   breakdown: UsageBreakdown;
   dailyUsage: UsageDaily;
+  userQuota: UserQuotaSnapshot;
   timeseries: UsagePoint[];
   resources: Record<string, AdminResource[]>;
   providerCatalog: ProviderCatalogEntry[];

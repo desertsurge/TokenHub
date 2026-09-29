@@ -23,6 +23,8 @@ Console login tokens cannot call model APIs. Use a project API key from **Key Ma
 4. Use one model ID in `POST /v1/chat/completions`, `POST /v1/messages`, `POST /v1/responses`, or `POST /v1/embeddings`.
 5. Review **Usage Analytics** and **Request Logs** for requests, tokens, cost, and errors.
 
+Every signed-in user can open **Usage Analytics** to see **Current User Quota**. This session-bound view shows the user's aggregate RPM, TPM, concurrency, and current UTC minute/day/month request, token, and cost consumption without accepting a selectable user ID. Per-Key effective quota remains available from **Key Management**.
+
 The console **API Documentation** page remains the guided onboarding view. For the complete interactive and machine-readable gateway contract, open `http://localhost:8080/docs` in a private deployment or import `http://localhost:8080/openapi.json` into an API client, SDK generator, test tool, or enterprise API catalog. The documentation page keeps any entered project key in browser memory only.
 
 ## Copy Connection Details and Rotate a Key

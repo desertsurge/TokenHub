@@ -154,6 +154,7 @@ type redisBillingAdmitParams struct {
 	requestID        string
 	keyID            string
 	userID           string
+	userQuotaID      string
 	minuteBucket     string
 	keyLimits        QuotaLimits
 	userLimits       QuotaLimits
@@ -199,9 +200,9 @@ func (c *redisBillingCoordinator) admit(ctx context.Context, params redisBilling
 	}
 	keys := []string{
 		redisBillingMinuteKey(params.keyID, params.minuteBucket),
-		redisBillingMinuteKey(userQuotaBucketKey(params.userID), params.minuteBucket),
+		redisBillingMinuteKey(params.userQuotaID, params.minuteBucket),
 		redisBillingLeaseKey("api_key", params.keyID),
-		redisBillingLeaseKey("user", params.userID),
+		redisBillingLeaseKey("user", params.userQuotaID),
 	}
 	ttl := now.Truncate(time.Minute).Add(2 * time.Minute).Sub(now)
 	if ttl < time.Minute {
@@ -263,7 +264,7 @@ func (c *redisBillingCoordinator) settle(ctx context.Context, call CallContext, 
 		redisBillingMinuteKey(call.Key.ID, call.TokenLimitBucket),
 		redisBillingMinuteKey(call.UserQuotaID, call.UserTokenLimitBucket),
 		redisBillingLeaseKey("api_key", call.Key.ID),
-		redisBillingLeaseKey("user", call.AttributedUserID),
+		redisBillingLeaseKey("user", call.UserQuotaID),
 	}
 	userDelta := int64(0)
 	if strings.TrimSpace(call.UserTokenLimitBucket) != "" {
@@ -307,7 +308,7 @@ func (c *redisBillingCoordinator) rollback(ctx context.Context, call CallContext
 		redisBillingMinuteKey(call.Key.ID, call.TokenLimitBucket),
 		redisBillingMinuteKey(call.UserQuotaID, call.UserTokenLimitBucket),
 		redisBillingLeaseKey("api_key", call.Key.ID),
-		redisBillingLeaseKey("user", call.AttributedUserID),
+		redisBillingLeaseKey("user", call.UserQuotaID),
 	},
 		(24 * time.Hour).Milliseconds(),
 		keyRequests,

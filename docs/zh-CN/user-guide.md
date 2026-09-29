@@ -23,6 +23,8 @@ Language: [English](../user-guide.md) | 简体中文 | [日本語](../ja/user-gu
 4. 选择一个模型 ID，调用 `POST /v1/chat/completions`、`POST /v1/messages`、`POST /v1/responses` 或 `POST /v1/embeddings`。
 5. 在 **用量统计** 和 **请求日志** 中查看请求、Token、成本和错误。
 
+每个登录用户都可以在 **用量统计** 中查看 **当前用户配额**。该视图按当前会话绑定用户展示用户聚合的 RPM、TPM、并发上限，以及当前 UTC 分钟、日、月的请求、Token 和成本消耗，不接受可选择的用户 ID。单个 Key 的有效配额仍可在 **Key 管理** 中查看。
+
 控制台中的「接口文档」仍是面向上手的引导页。需要完整的交互式和机器可读网关合约时，请在私有部署中打开 `http://localhost:8080/docs`，或将 `http://localhost:8080/openapi.json` 导入 API 客户端、SDK 生成器、测试工具或企业 API 目录。文档页中输入的项目 Key 只保存在浏览器内存中。
 
 ## 复制接入信息与轮换 Key

@@ -23,6 +23,8 @@ Language: [English](../user-guide.md) | [简体中文](../zh-CN/user-guide.md) |
 4. モデル ID を選び、`POST /v1/chat/completions`、`POST /v1/messages`、`POST /v1/responses`、`POST /v1/embeddings` を呼び出します。
 5. **Usage Analytics** と **Request Logs** でリクエスト、Token、コスト、エラーを確認します。
 
+ログイン済みのすべてのユーザーは **Usage Analytics** で **Current User Quota** を確認できます。この画面は現在のセッションのユーザーに固定され、ユーザー集約の RPM、TPM、同時実行上限と、現在の UTC 分・日・月のリクエスト数、Token、コストを表示します。任意のユーザー ID は指定できません。Key ごとの実効クォータは引き続き **Key Management** で確認できます。
+
 コンソールの **API Documentation** は、引き続きオンボーディング向けのガイド画面です。完全な対話型かつ機械可読のゲートウェイ契約が必要な場合は、プライベートデプロイで `http://localhost:8080/docs` を開くか、`http://localhost:8080/openapi.json` を API クライアント、SDK ジェネレーター、テストツール、または企業 API カタログへ取り込んでください。ドキュメントページに入力した Project Key はブラウザーのメモリ内だけに保持されます。
 
 ## 接続情報のコピーと Key のローテーション

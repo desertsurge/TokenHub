@@ -381,6 +381,7 @@ func (s *GormStore) AdmitResponseJob(ctx context.Context, id string, owner strin
 				"redis_billing_admitted":   admission.call.RedisBillingAdmitted,
 				"redis_key_lease_held":     admission.call.RedisKeyLeaseHeld,
 				"redis_user_lease_held":    admission.call.RedisUserLeaseHeld,
+				"tenant_external_id":       admission.call.Key.TenantExternalID,
 				"attributed_user_id":       admission.call.AttributedUserID,
 			}).Error
 	})
@@ -574,7 +575,7 @@ func (s *GormStore) rollbackResponseJobAdmission(tx *gorm.DB, job ResponseJob) e
 	if job.RedisBillingAdmitted {
 		s.rollbackRedisBilling("response job", responseJobAdmissionCall(job))
 	} else if job.MinuteRequestHeld {
-		bucket, err := s.quotaBucketForUpdate(tx, job.APIKeyID, "minute", minuteBucket(*job.AdmittedAt))
+		bucket, err := s.quotaBucketForUpdateWithTenant(tx, job.APIKeyID, "minute", minuteBucket(*job.AdmittedAt), job.TenantExternalID)
 		if err != nil {
 			return err
 		}
@@ -587,20 +588,20 @@ func (s *GormStore) rollbackResponseJobAdmission(tx *gorm.DB, job ResponseJob) e
 	}
 	if !job.RedisBillingAdmitted {
 		if err := s.reconcileAPIKeyMinuteTokens(tx, CallContext{
-			Key:              APIKey{ID: job.APIKeyID},
+			Key:              APIKey{ID: job.APIKeyID, TenantExternalID: job.TenantExternalID},
 			TokenLimitBucket: job.TokenLimitBucket,
 			ReservedTokens:   job.ReservedTokens,
 		}, 0, job.AttributedUserID); err != nil {
 			return err
 		}
 	}
-	userQuotaID := userQuotaBucketKey(job.AttributedUserID)
+	userQuotaID := userQuotaBucketKey(job.AttributedUserID, job.TenantExternalID)
 	if job.UserQuotaEnabled {
 		if err := s.lockScopeForUpdate(tx, "user_quota", userQuotaID); err != nil {
 			return err
 		}
 		if !job.RedisBillingAdmitted && job.UserMinuteRequestHeld {
-			userMinuteBucket, err := s.quotaBucketForUpdate(tx, userQuotaID, "minute", minuteBucket(*job.AdmittedAt), job.AttributedUserID)
+			userMinuteBucket, err := s.quotaBucketForUpdateWithTenant(tx, userQuotaID, "minute", minuteBucket(*job.AdmittedAt), job.TenantExternalID, job.AttributedUserID)
 			if err != nil {
 				return err
 			}
@@ -612,7 +613,7 @@ func (s *GormStore) rollbackResponseJobAdmission(tx *gorm.DB, job ResponseJob) e
 			}
 		}
 		if !job.RedisBillingAdmitted {
-			if err := s.reconcileQuotaMinuteTokens(tx, userQuotaID, job.UserTokenLimitBucket, job.ReservedTokens, 0, job.AttributedUserID); err != nil {
+			if err := s.reconcileQuotaMinuteTokens(tx, userQuotaID, job.UserTokenLimitBucket, job.ReservedTokens, 0, job.TenantExternalID, job.AttributedUserID); err != nil {
 				return err
 			}
 		}
@@ -624,7 +625,7 @@ func (s *GormStore) rollbackResponseJobAdmission(tx *gorm.DB, job ResponseJob) e
 		{scope: "day", bucket: dayBucket(*job.AdmittedAt)},
 		{scope: "month", bucket: monthBucket(*job.AdmittedAt)},
 	} {
-		bucket, err := s.quotaBucketForUpdate(tx, job.APIKeyID, period.scope, period.bucket)
+		bucket, err := s.quotaBucketForUpdateWithTenant(tx, job.APIKeyID, period.scope, period.bucket, job.TenantExternalID)
 		if err != nil {
 			return err
 		}
@@ -635,7 +636,7 @@ func (s *GormStore) rollbackResponseJobAdmission(tx *gorm.DB, job ResponseJob) e
 			return err
 		}
 		if job.UserQuotaEnabled {
-			userBucket, err := s.quotaBucketForUpdate(tx, userQuotaID, period.scope, period.bucket, job.AttributedUserID)
+			userBucket, err := s.quotaBucketForUpdateWithTenant(tx, userQuotaID, period.scope, period.bucket, job.TenantExternalID, job.AttributedUserID)
 			if err != nil {
 				return err
 			}
@@ -932,7 +933,7 @@ func (s *GormStore) refundUndispatchedResponseJobReservation(tx *gorm.DB, job Re
 		s.settleRedisBilling("undispatched response job", responseJobAdmissionCall(job), 0)
 	} else {
 		if err := s.reconcileAPIKeyMinuteTokens(tx, CallContext{
-			Key:              APIKey{ID: job.APIKeyID},
+			Key:              APIKey{ID: job.APIKeyID, TenantExternalID: job.TenantExternalID},
 			TokenLimitBucket: job.TokenLimitBucket,
 			ReservedTokens:   job.ReservedTokens,
 		}, 0, job.AttributedUserID); err != nil {
@@ -940,12 +941,12 @@ func (s *GormStore) refundUndispatchedResponseJobReservation(tx *gorm.DB, job Re
 		}
 	}
 	if job.UserQuotaEnabled {
-		userQuotaID := userQuotaBucketKey(job.AttributedUserID)
+		userQuotaID := userQuotaBucketKey(job.AttributedUserID, job.TenantExternalID)
 		if err := s.lockScopeForUpdate(tx, "user_quota", userQuotaID); err != nil {
 			return err
 		}
 		if !job.RedisBillingAdmitted {
-			if err := s.reconcileQuotaMinuteTokens(tx, userQuotaID, job.UserTokenLimitBucket, job.ReservedTokens, 0, job.AttributedUserID); err != nil {
+			if err := s.reconcileQuotaMinuteTokens(tx, userQuotaID, job.UserTokenLimitBucket, job.ReservedTokens, 0, job.TenantExternalID, job.AttributedUserID); err != nil {
 				return err
 			}
 		}
@@ -957,7 +958,7 @@ func (s *GormStore) refundUndispatchedResponseJobReservation(tx *gorm.DB, job Re
 				{scope: "day", bucket: dayBucket(*job.AdmittedAt)},
 				{scope: "month", bucket: monthBucket(*job.AdmittedAt)},
 			} {
-				counter, err := s.quotaBucketForUpdate(tx, userQuotaID, period.scope, period.bucket, job.AttributedUserID)
+				counter, err := s.quotaBucketForUpdateWithTenant(tx, userQuotaID, period.scope, period.bucket, job.TenantExternalID, job.AttributedUserID)
 				if err != nil {
 					return err
 				}
@@ -978,12 +979,12 @@ func responseJobAdmissionCall(job ResponseJob) CallContext {
 	}
 	return CallContext{
 		RequestID:             job.RequestID,
-		Key:                   APIKey{ID: job.APIKeyID},
+		Key:                   APIKey{ID: job.APIKeyID, TenantExternalID: job.TenantExternalID},
 		StartedAt:             startedAt,
 		TokenLimitBucket:      job.TokenLimitBucket,
 		MinuteRequestHeld:     job.MinuteRequestHeld,
 		ReservedTokens:        job.ReservedTokens,
-		UserQuotaID:           userQuotaBucketKey(job.AttributedUserID),
+		UserQuotaID:           userQuotaBucketKey(job.AttributedUserID, job.TenantExternalID),
 		UserQuotaEnabled:      job.UserQuotaEnabled,
 		UserMinuteRequestHeld: job.UserMinuteRequestHeld,
 		UserTokenLimitBucket:  job.UserTokenLimitBucket,

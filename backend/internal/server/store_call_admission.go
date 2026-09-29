@@ -105,7 +105,7 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 		return admission, err
 	}
 	measuredAt := time.Now()
-	attributedUserID := usageAttributionUserID(privateKey, privateProject)
+	attributedUserID := usageAttributionUserIDWithDB(tx, privateKey, privateProject)
 	minuteCounter := QuotaCounter{}
 	userMinuteCounter := QuotaCounter{}
 	userQuotaID := ""
@@ -113,13 +113,13 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 		if err := pruneAPIKeyMinuteBuckets(tx, privateKey.ID, now); err != nil {
 			return admission, err
 		}
-		minuteCounter, err = s.consumeAPIKeyMinuteRequest(tx, privateKey.ID, effectiveLimits, minuteLimitScopes, tokenReservation, now)
+		minuteCounter, err = s.consumeAPIKeyMinuteRequest(tx, privateKey.ID, effectiveLimits, minuteLimitScopes, tokenReservation, now, privateKey.TenantExternalID)
 		if err != nil {
 			return admission, err
 		}
 	}
 	if userPolicy.Enabled() {
-		userQuotaID = userQuotaBucketKey(userPolicy.UserID)
+		userQuotaID = userQuotaBucketKey(userPolicy.UserID, privateKey.TenantExternalID)
 		if err := s.lockScopeForUpdate(tx, "user_quota", userQuotaID); err != nil {
 			return admission, err
 		}
@@ -134,7 +134,7 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 			userMinuteScopes.TPM = "user"
 		}
 		if s.billingRedis == nil {
-			userMinuteCounter, err = s.consumeAPIKeyMinuteRequest(tx, userQuotaID, userPolicy.Limits, userMinuteScopes, tokenReservation, now, userPolicy.UserID)
+			userMinuteCounter, err = s.consumeAPIKeyMinuteRequest(tx, userQuotaID, userPolicy.Limits, userMinuteScopes, tokenReservation, now, privateKey.TenantExternalID, userPolicy.UserID)
 			if err != nil {
 				httpErr := AsHTTPError(err)
 				if httpErr.Code == "api_key_rpm_exceeded" || httpErr.Code == "api_key_tpm_exceeded" {
@@ -146,33 +146,33 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 			}
 		}
 	}
-	dayCounter, err := s.quotaBucketForUpdate(tx, privateKey.ID, "day", dayBucket(now))
+	dayCounter, err := s.quotaBucketForUpdateWithTenant(tx, privateKey.ID, "day", dayBucket(now), privateKey.TenantExternalID)
 	if err != nil {
 		return admission, err
 	}
 	userDayCounter := QuotaBucket{}
 	userMonthCounter := QuotaBucket{}
 	if userPolicy.Enabled() {
-		userDayCounter, err = s.quotaBucketForUpdate(tx, userQuotaID, "day", dayBucket(now), userPolicy.UserID)
+		userDayCounter, err = s.quotaBucketForUpdateWithTenant(tx, userQuotaID, "day", dayBucket(now), privateKey.TenantExternalID, userPolicy.UserID)
 		if err != nil {
 			return admission, err
 		}
-		userMonthCounter, err = s.quotaBucketForUpdate(tx, userQuotaID, "month", monthBucket(now), userPolicy.UserID)
+		userMonthCounter, err = s.quotaBucketForUpdateWithTenant(tx, userQuotaID, "month", monthBucket(now), privateKey.TenantExternalID, userPolicy.UserID)
 		if err != nil {
 			return admission, err
 		}
-		historicalDay, err := s.aggregateUserQuotaCounter(tx, userPolicy.UserID, "day", dayBucket(now))
+		historicalDay, err := s.aggregateUserQuotaCounter(tx, userPolicy.UserID, "day", dayBucket(now), privateKey.TenantExternalID)
 		if err != nil {
 			return admission, err
 		}
-		historicalMonth, err := s.aggregateUserQuotaCounter(tx, userPolicy.UserID, "month", monthBucket(now))
+		historicalMonth, err := s.aggregateUserQuotaCounter(tx, userPolicy.UserID, "month", monthBucket(now), privateKey.TenantExternalID)
 		if err != nil {
 			return admission, err
 		}
 		mergeQuotaCounterMax(&userDayCounter.QuotaCounter, historicalDay)
 		mergeQuotaCounterMax(&userMonthCounter.QuotaCounter, historicalMonth)
 	}
-	monthCounter, err := s.quotaBucketForUpdate(tx, privateKey.ID, "month", monthBucket(now))
+	monthCounter, err := s.quotaBucketForUpdateWithTenant(tx, privateKey.ID, "month", monthBucket(now), privateKey.TenantExternalID)
 	if err != nil {
 		return admission, err
 	}
@@ -185,7 +185,7 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 		admission.leaseAcquired = true
 	}
 	if s.billingRedis == nil && userPolicy.Enabled() && userPolicy.Limits.MaxConcurrency > 0 {
-		confirmedFor, err := s.acquireInFlightLease(tx, "user", userPolicy.UserID, userPolicy.Limits.MaxConcurrency, userConcurrencyLeaseID(requestID))
+		confirmedFor, err := s.acquireInFlightLease(tx, "user", userQuotaID, userPolicy.Limits.MaxConcurrency, userConcurrencyLeaseID(requestID))
 		if err != nil {
 			if AsHTTPError(err).Code == ErrRateLimitExceeded.Code {
 				return admission, quotaExceededError("user")
@@ -241,6 +241,7 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 			requestID:        requestID,
 			keyID:            privateKey.ID,
 			userID:           userPolicy.UserID,
+			userQuotaID:      userQuotaID,
 			minuteBucket:     minuteBucket(now),
 			keyLimits:        effectiveLimits,
 			userLimits:       userPolicy.Limits,
@@ -306,7 +307,7 @@ func (s *GormStore) startAdmittedCallHeartbeat(ctx context.Context, admission ca
 			call.requestContext = s.startRedisBillingLeaseHeartbeat(ctx, "api_key", call.Key.ID, call.RequestID)
 		}
 		if call.RedisUserLeaseHeld {
-			call.requestContext = s.startRedisBillingLeaseHeartbeat(call.requestContext, "user", call.AttributedUserID, userConcurrencyLeaseID(call.RequestID))
+			call.requestContext = s.startRedisBillingLeaseHeartbeat(call.requestContext, "user", call.UserQuotaID, userConcurrencyLeaseID(call.RequestID))
 		}
 		return call
 	}

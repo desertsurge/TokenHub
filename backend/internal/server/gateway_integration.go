@@ -30,6 +30,7 @@ func (s *Server) registerGatewayRoutes() {
 	s.mux.HandleFunc("/api/internal/model-access-keys/", s.handleGatewayModelAccessKeyItem)
 	s.mux.HandleFunc("/api/internal/request-logs", s.handleGatewayRequestLogs)
 	s.mux.HandleFunc("/api/internal/usage", s.handleGatewayUsage)
+	s.mux.HandleFunc("/api/internal/user-quota", s.handleGatewayUserQuota)
 }
 
 type GatewayIntegrationEvent struct {

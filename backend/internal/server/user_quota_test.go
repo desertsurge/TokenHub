@@ -62,6 +62,88 @@ func TestUserQuotaAggregatesAcrossAPIKeys(t *testing.T) {
 	}
 }
 
+func TestUserQuotaAggregationDoesNotDropAPIKeysWithUserPrefix(t *testing.T) {
+	store, _, _, _ := setupUserQuotaTest(t, map[string]any{})
+	now := time.Now().UTC()
+	if err := store.db.Create(&QuotaBucket{
+		KeyID: "user:api-key", Scope: "day", Bucket: dayBucket(now), AttributedUserID: "usr_user_quota",
+		QuotaCounter: QuotaCounter{Requests: 1, TotalTokens: 7},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	usage, supported, err := store.GetQuotaPolicyUsage("user", "usr_user_quota")
+	if err != nil || !supported || usage.Daily.TotalTokens != 7 {
+		t.Fatalf("user-prefixed API key usage = %+v supported=%v err=%v, want 7 tokens", usage, supported, err)
+	}
+}
+
+func TestUserQuotaUsageIsIsolatedWithinTenant(t *testing.T) {
+	store := NewMemoryStore()
+	userID := "usr_shared_quota"
+	projectA := store.CreateProject(Project{ID: "prj_quota_tenant_a", Name: "Tenant A", OwnerUserID: userID, Status: StatusActive})
+	projectB := store.CreateProject(Project{ID: "prj_quota_tenant_b", Name: "Tenant B", OwnerUserID: userID, Status: StatusActive})
+	keyA, _, err := store.CreateAPIKey(projectA.ID, APIKey{ID: "key_quota_tenant_a", Name: "tenant-a", OwnerUserID: userID, TenantExternalID: "tenant-a", Status: StatusActive}, "thk_quota_tenant_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyB, _, err := store.CreateAPIKey(projectB.ID, APIKey{ID: "key_quota_tenant_b", Name: "tenant-b", OwnerUserID: userID, TenantExternalID: "tenant-b", Status: StatusActive}, "thk_quota_tenant_b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "tenant-quota-model", Modality: "chat", Status: StatusActive})
+	for tenantID := range map[string]struct{}{"tenant-a": {}, "tenant-b": {}} {
+		store.CreateResource("quota-policies", AdminResource{
+			ID: "quota_shared_" + tenantID, Name: "Shared user " + tenantID, Status: StatusActive,
+			Fields: map[string]any{"scope": "user", "scope_id": userID, "tenant_external_id": tenantID, "daily_tokens": int64(5)},
+		})
+	}
+	callA, err := store.StartCall(context.Background(), projectA, keyA, "tenant-quota-model", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.FinishCall(callA, RouteSelection{}, Usage{TotalTokens: 5}, http.StatusOK, "", "127.0.0.1", "tenant-quota-test")
+	usageA, supported, err := store.GetQuotaPolicyUsage("user", userID, "tenant-a")
+	if err != nil || !supported || usageA.Daily.TotalTokens != 5 {
+		t.Fatalf("tenant-a usage = %+v supported=%v err=%v, want 5 tokens", usageA, supported, err)
+	}
+	usageB, supported, err := store.GetQuotaPolicyUsage("user", userID, "tenant-b")
+	if err != nil || !supported || usageB.Daily.TotalTokens != 0 {
+		t.Fatalf("tenant-b must not include tenant-a usage: %+v supported=%v err=%v", usageB, supported, err)
+	}
+	callB, err := store.StartCall(context.Background(), projectB, keyB, "tenant-quota-model", 0)
+	if err != nil {
+		t.Fatalf("same user in another tenant should retain its own quota: %v", err)
+	}
+	store.FinishCall(callB, RouteSelection{}, Usage{}, http.StatusOK, "", "127.0.0.1", "tenant-quota-test")
+}
+
+func TestTenantUserQuotaHistorySurvivesAPIKeyDeletion(t *testing.T) {
+	store := NewMemoryStore()
+	userID := "usr_deleted_tenant_quota"
+	project := store.CreateProject(Project{ID: "prj_deleted_tenant_quota", Name: "Deleted key history", OwnerUserID: userID, Status: StatusActive})
+	key, _, err := store.CreateAPIKey(project.ID, APIKey{ID: "key_deleted_tenant_quota", Name: "deleted", OwnerUserID: userID, TenantExternalID: "tenant-delete", Status: StatusActive}, "thk_deleted_tenant_quota")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "deleted-tenant-quota-model", Modality: "chat", Status: StatusActive})
+	call, err := store.StartCall(context.Background(), project, key, "deleted-tenant-quota-model", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.FinishCall(call, RouteSelection{}, Usage{TotalTokens: 10}, http.StatusOK, "", "127.0.0.1", "tenant-quota-test")
+	if err := store.DeleteAPIKey(key.ID); err != nil {
+		t.Fatal(err)
+	}
+	store.CreateResource("quota-policies", AdminResource{
+		ID: "quota_deleted_tenant_history", Name: "Deleted tenant key history", Status: StatusActive,
+		Fields: map[string]any{"scope": "user", "scope_id": userID, "tenant_external_id": "tenant-delete", "daily_tokens": int64(10)},
+	})
+	usage, supported, err := store.GetQuotaPolicyUsage("user", userID, "tenant-delete")
+	if err != nil || !supported || usage.Daily.TotalTokens != 10 {
+		t.Fatalf("deleted tenant key history = %+v supported=%v err=%v, want 10 tokens", usage, supported, err)
+	}
+}
+
 func TestUserQuotaReservationIsAtomicAcrossAPIKeys(t *testing.T) {
 	store, project, keyA, keyB := setupUserQuotaTest(t, map[string]any{"daily_tokens": 5})
 	results := make(chan error, 2)

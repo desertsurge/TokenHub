@@ -11,6 +11,7 @@ import { AdminUIReportTemplates } from "./admin-ui-report-templates";
 import { BillingRateCards } from "./billing-rate-cards";
 import { BillingStatements } from "./billing-statements";
 import { ReconciliationManager } from "./billing-reconciliation";
+import { PersonalQuotaSummary } from "./personal-quota-summary";
 
 export function UsageView({ api, data, user }: { api: ApiContext; data: AppData; user: AdminUser }) {
   const modelBreakdown = data.breakdown.models ?? [];
@@ -20,6 +21,7 @@ export function UsageView({ api, data, user }: { api: ApiContext; data: AppData;
     <>
       <DailyUsageSection data={data} user={user} />
       {showExecutiveReport ? <ExecutiveUsageReport data={data} /> : <PersonalUsageSummary data={data} />}
+      <PersonalQuotaSummary quota={data.userQuota} />
       {showExecutiveReport ? <AdminUIReportTemplates api={api} data={data} /> : null}
       <div className="two-column">
         <DataSection title="模型用量">

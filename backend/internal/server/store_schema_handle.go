@@ -97,6 +97,7 @@ func SchemaMigrationRegistry() []dbschema.Migration {
 		gatewayCostCenterMigration(),
 		gatewayOrganizationPrimaryMigration(),
 		usageCostCenterSnapshotMigration(),
+		quotaBucketTenantMigration(),
 		{
 			Version:          2,
 			Name:             "add-granular-billing-columns-sqlite",

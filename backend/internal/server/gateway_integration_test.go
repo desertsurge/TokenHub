@@ -114,6 +114,7 @@ func TestGatewayIntegrationRequiresSignedTenantContext(t *testing.T) {
 		{http.MethodPost, "/api/internal/model-access-keys/key_01/reveal", map[string]any{"tenant_id": "tenant_01"}},
 		{http.MethodGet, "/api/internal/request-logs?tenant_id=tenant_01", nil},
 		{http.MethodGet, "/api/internal/usage?tenant_id=tenant_01", nil},
+		{http.MethodGet, "/api/internal/user-quota?tenant_id=tenant_01&principal_id=user_01", nil},
 	}
 	for _, item := range unsignedTenantRequests {
 		response := doJSON(t, app, item.method, item.path, item.payload, "integration_token")
@@ -760,6 +761,45 @@ func TestGatewayModelAccessKeyLifecycleIsTenantScopedAndIdempotent(t *testing.T)
 	}
 	if revokeAudit.ActorUserID != "user_01" {
 		t.Fatalf("expected revoke audit actor user_01, got %+v", revokeAudit)
+	}
+}
+
+func TestGatewayModelAccessKeyPersistsRuntimeMinuteLimits(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	seedGatewayModelAccessKeyScope(t, app)
+	response := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
+		"request_id": "request_runtime_limits", "tenant_id": "tenant_01", "project_id": "project_01",
+		"principal_type": "user", "principal_id": "user_01", "name": "Runtime limits", "requested_by": "user_01",
+		"limits": map[string]interface{}{"rate_limit_rpm": 1, "token_limit_tpm": 2},
+	}, "integration_token")
+	if response.Code != http.StatusCreated {
+		t.Fatalf("expected model access key creation, got %d: %s", response.Code, response.Body)
+	}
+	var payload gatewayModelAccessKeyCreateResponse
+	if err := json.Unmarshal([]byte(response.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	var persisted APIKey
+	if err := store.db.First(&persisted, "id = ?", payload.Data.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.RateLimitRPM == nil || *persisted.RateLimitRPM != 1 || persisted.TokenLimitTPM == nil || *persisted.TokenLimitTPM != 2 {
+		t.Fatalf("expected runtime minute limits to be persisted, got %+v", persisted)
+	}
+}
+
+func TestGatewayModelAccessKeyRejectsNegativeMinuteLimits(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	seedGatewayModelAccessKeyScope(t, app)
+	response := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
+		"request_id": "request_negative_limits", "tenant_id": "tenant_01", "project_id": "project_01",
+		"principal_type": "user", "principal_id": "user_01", "name": "Negative limits", "requested_by": "user_01",
+		"limits": map[string]interface{}{"rate_limit_rpm": -1, "token_limit_tpm": 0},
+	}, "integration_token")
+	if response.Code != http.StatusBadRequest || !jsonBodyHasCode(response.Body, "invalid_model_access_key") {
+		t.Fatalf("expected negative minute limits to be rejected, got %d: %s", response.Code, response.Body)
 	}
 }
 

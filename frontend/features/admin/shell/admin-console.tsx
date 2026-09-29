@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type LoadedData, loadPlanForView, mergeLoadedData } from "../core/data-loading";
 import { allNavGroupTitles, canAccessView, defaultViewForRole, rememberRecentView, standaloneViewMeta } from "../core/navigation";
+import { type UserQuotaSnapshot } from "../core/quota-types";
 import { clearOAuthAuthorizationResponse, clearOAuthLoginResult, clearPendingOAuthLogin, clearProviderAccountOAuthResultFromLocation, clearSavedSession, consumePasswordResetToken, forwardOAuthAuthorizationResponse, hasPendingProviderAccountOAuthResult, isOAuthAuthorizationResponse, isProviderAccountOAuthAuthorizationResponse, readOAuthLoginResult, readPendingOAuthLogin, readProviderAccountOAuthResultFromLocation, readSavedSession, savePendingProviderAccountOAuthResult, saveSession } from "../core/session";
 import { notificationChannelDefaultType, notificationChannelTypes, type AdapterDescriptor, type AdminResource, type AdminUIContribution, type AdminUser, type AlertDelivery, type AlertEvent, type APIKey, type AppData, type ApprovalRequest, type AuditEvent, authExpiredEventName, type BillingConnector, type BillingRecord, type BillingSyncRun, type ConfirmState, type GatewayChainPlan, languageStorageKey, type LoginIdentityProvider, type ModalState, type Model, type ModelRoute, type ModelRoutePolicy, type PluginActionDescriptor, type PluginBackgroundJobDescriptor, type PluginBackgroundJobRunRecord, type PluginDescriptor, type PluginMarketplacePlugin, type Project, type Provider, type ProviderCatalogEntry, type ProviderModel, type ProviderMonitoringSnapshot, type ProviderResource, type ReconciliationRule, type ReconciliationRun, type ReportExportHistoryItem, type RequestLog, type ResourceAction, type ResourceConfig, type SettingsTabKey, type SQLiteBackup, type ToolbarAction, type UsageBreakdown, type UsageDaily, type UsagePoint, type ViewKey, viewRoutes } from "../core/types";
 import { emptyData, emptySummary, filterByModelCategory, filterRows } from "../domain/catalog";
@@ -431,6 +432,7 @@ export function AdminConsole({ defaultBaseURL }: { defaultBaseURL: string }) {
       queue(plan.approvals, "approvals", "/api/admin/approvals");
       queue(plan.sqliteBackups, "sqlite-backups", "/api/admin/sqlite/backups");
       queue(plan.dailyUsage, "daily-usage", "/api/admin/usage/daily");
+      queue(plan.userQuota, "user-quota", "/api/admin/usage/quota");
       queue(plan.breakdown, "breakdown", "/api/admin/usage/breakdown");
       queue(plan.timeseries, "timeseries", "/api/admin/usage/timeseries");
       queue(plan.users, "users", "/api/admin/users");
@@ -513,6 +515,8 @@ export function AdminConsole({ defaultBaseURL }: { defaultBaseURL: string }) {
           loaded.sqliteBackups = payload.data ?? [];
         } else if (name === "daily-usage") {
           loaded.dailyUsage = (await resp.json()) as UsageDaily;
+        } else if (name === "user-quota") {
+          loaded.userQuota = (await resp.json()) as UserQuotaSnapshot;
         } else if (name === "breakdown") {
           loaded.breakdown = (await resp.json()) as UsageBreakdown;
         } else if (name === "timeseries") {

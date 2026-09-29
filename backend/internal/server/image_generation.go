@@ -560,6 +560,7 @@ func (s *Server) finishImageJobPreflightFailure(w http.ResponseWriter, r *http.R
 }
 
 func imageJobWithAdmission(job ImageJob, call CallContext) ImageJob {
+	job.TenantExternalID = call.Key.TenantExternalID
 	job.TokenLimitBucket = call.TokenLimitBucket
 	job.MinuteRequestHeld = call.MinuteRequestHeld
 	job.UserQuotaEnabled = call.UserQuotaEnabled
