@@ -52,21 +52,21 @@
     },
     {
       "version": 7,
-      "name": "add-gateway-integration-schema",
+      "name": "add-gateway-control-plane-schema-sqlite",
       "phase": "expand",
-      "dialect": "",
-      "checksum": "tokenhub-schema-gateway-integration-v1",
+      "dialect": "sqlite",
+      "checksum": "tokenhub-schema-gateway-control-plane-sqlite-v1",
       "lock_timeout_seconds": 30,
-      "statement_budget": 100
+      "statement_budget": 80
     },
     {
       "version": 8,
-      "name": "complete-gateway-integration-schema",
+      "name": "add-gateway-control-plane-schema-postgres",
       "phase": "expand",
-      "dialect": "",
-      "checksum": "tokenhub-schema-gateway-integration-storage-v1",
+      "dialect": "postgres",
+      "checksum": "tokenhub-schema-gateway-control-plane-postgres-v1",
       "lock_timeout_seconds": 30,
-      "statement_budget": 10
+      "statement_budget": 50
     },
     {
       "version": 9,

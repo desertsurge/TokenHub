@@ -999,7 +999,7 @@ func schemaModels() []any {
 		&guardrails.Policy{},
 		&guardrails.DetectionItem{},
 		&guardrails.Binding{},
-		&APIKey{},
+		&legacyAPIKey{},
 		&Provider{},
 		&ProviderResource{},
 		&ProviderModel{},

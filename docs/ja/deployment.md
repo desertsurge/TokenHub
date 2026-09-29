@@ -173,7 +173,7 @@ cp deploy/.env.example deploy/.env
 起動前に `deploy/.env` を確認してください。
 
 - `TOKENHUB_ADMIN_TOKEN`: 任意の Admin API 静的 Token。運用自動化で必要な場合は 32 バイト以上のランダム値を設定し、不要な場合はプレースホルダーのままにして無効化します。
-- `TOKENHUB_INTEGRATION_TOKEN`: 任意の外部プラットフォーム連携イベントおよびモデルアクセスキー制御 API 専用認証情報。連携 API を有効にする場合は 32 バイト以上のランダム値を設定します。
+- `TOKENHUB_INTEGRATION_TOKEN`: 任意の外部プラットフォーム連携イベントおよびモデルアクセスキー制御 API 専用認証情報。Admin Token と異なる 32 バイト以上のランダム値を設定します。
 - `TOKENHUB_INTEGRATION_CONTEXT_SECRET`: テナント単位の連携リクエストを検証する独立した署名キーです。外部連携サービスと同じランダム値を設定し、送信側の署名対応を先にデプロイしてください。本番環境で連携 Token を有効にする場合は 32 バイト以上が必要です。
 - `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`: 任意の初期 `admin` パスワード。12 バイト以上の値を設定するか、プレースホルダーのままにして TokenHub に生成させます。
 - `TOKENHUB_SECRET_KEY`: バックエンド暗号化ルートキー。PostgreSQL と既存の SQLite データベースでは、32 バイト以上の安定した値が必須です。新規のファイル型 SQLite デプロイでは、プレースホルダーのままにするとデータベースの隣に権限 `0600` のキーファイルを生成します。

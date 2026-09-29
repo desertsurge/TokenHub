@@ -173,7 +173,7 @@ cp deploy/.env.example deploy/.env
 启动前检查 `deploy/.env`：
 
 - `TOKENHUB_ADMIN_TOKEN`：可选的 Admin API 静态 Token。运维自动化需要使用时，设置至少 32 字节的随机值；否则保留占位值以禁用该 Token。
-- `TOKENHUB_INTEGRATION_TOKEN`：可选的外部平台集成事件和模型访问凭证控制接口专用凭证。启用集成接口时设置至少 32 个随机字节。
+- `TOKENHUB_INTEGRATION_TOKEN`：可选的外部平台集成事件和模型访问凭证控制接口专用凭证。必须使用与 `TOKENHUB_ADMIN_TOKEN` 不同且至少 32 字节的随机值。
 - `TOKENHUB_INTEGRATION_CONTEXT_SECRET`：独立的租户上下文签名密钥，用于校验租户级集成请求。外部集成服务使用相同随机值；先部署发送端签名能力，再启用此配置。生产环境启用集成 Token 时要求至少 32 字节。
 - `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`：可选的初始 `admin` 密码。可以设置至少 12 字节的密码，也可以保留占位值，由 TokenHub 自动生成。
 - `TOKENHUB_SECRET_KEY`：后端加密根密钥。PostgreSQL 和已有 SQLite 数据库必须配置至少 32 字节的稳定值。全新文件型 SQLite 部署可以保留占位值，TokenHub 会在数据库旁生成权限为 `0600` 的密钥文件。

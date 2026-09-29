@@ -46,7 +46,7 @@ func TestGatewayIntegrationEndpointRequiresDedicatedToken(t *testing.T) {
 	}).Handler()
 	event := gatewayIntegrationEvent("evt_auth", "tenant.created", "tenant", "tenant_01", "tenant_01", 1, map[string]interface{}{
 		"externalId": "tenant_01",
-		"name":       "企业一",
+		"name":       "Enterprise One",
 	})
 
 	unauthorized := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", event, "admin_token")
@@ -203,10 +203,10 @@ func TestGatewayIntegrationReconciliationReturnsTenantEventWatermark(t *testing.
 	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
 	events := []map[string]interface{}{
 		gatewayIntegrationEvent("evt_tenant_watermark", "tenant.created", "tenant", "tenant_01", "tenant_01", 1, map[string]interface{}{
-			"externalId": "tenant_01", "name": "企业一",
+			"externalId": "tenant_01", "name": "Enterprise One",
 		}),
 		gatewayIntegrationEvent("evt_org_watermark", "organization.created", "organization", "org_01", "tenant_01", 1, map[string]interface{}{
-			"externalId": "org_01", "name": "研发中心", "parentExternalId": nil,
+			"externalId": "org_01", "name": "Engineering Center", "parentExternalId": nil,
 		}),
 	}
 	for _, event := range events {
@@ -242,7 +242,7 @@ func TestGatewayIntegrationReconciliationReturnsTenantEventWatermark(t *testing.
 	}
 	previousDigest := organizationProjection.Digest
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_org_watermark_update", "organization.updated", "organization", "org_01", "tenant_01", 2, map[string]interface{}{
-		"externalId": "org_01", "name": "研发中心", "status": StatusDisabled,
+		"externalId": "org_01", "name": "Engineering Center", "status": StatusDisabled,
 	}))
 	updated := doJSON(t, app, http.MethodGet, "/api/internal/integration/reconciliation?tenant_id=tenant_01", nil, "integration_token")
 	if updated.Code != http.StatusOK {
@@ -294,7 +294,7 @@ func TestGatewayIntegrationEventIsIdempotentAndRejectsEventIDReuse(t *testing.T)
 	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
 	event := gatewayIntegrationEvent("evt_tenant_01", "tenant.created", "tenant", "tenant_01", "tenant_01", 1, map[string]interface{}{
 		"externalId": "tenant_01",
-		"name":       "企业一",
+		"name":       "Enterprise One",
 	})
 
 	first := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", event, "integration_token")
@@ -312,7 +312,7 @@ func TestGatewayIntegrationEventIsIdempotentAndRejectsEventIDReuse(t *testing.T)
 
 	changed := gatewayIntegrationEvent("evt_tenant_01", "tenant.created", "tenant", "tenant_01", "tenant_01", 1, map[string]interface{}{
 		"externalId": "tenant_01",
-		"name":       "被篡改名称",
+		"name":       "Tampered Name",
 	})
 	conflict := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", changed, "integration_token")
 	if conflict.Code != http.StatusConflict || !jsonBodyHasCode(conflict.Body, "integration_event_conflict") {
@@ -325,16 +325,16 @@ func TestGatewayIntegrationIgnoresStaleVersionsAndSoftDeletes(t *testing.T) {
 	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
 	create := gatewayIntegrationEvent("evt_tenant_create", "tenant.created", "tenant", "tenant_01", "tenant_01", 1, map[string]interface{}{
 		"externalId": "tenant_01",
-		"name":       "初始名称",
+		"name":       "Initial Name",
 	})
 	update := gatewayIntegrationEvent("evt_tenant_update", "tenant.updated", "tenant", "tenant_01", "tenant_01", 3, map[string]interface{}{
 		"externalId": "tenant_01",
-		"name":       "最新名称",
+		"name":       "Latest Name",
 		"status":     "active",
 	})
 	stale := gatewayIntegrationEvent("evt_tenant_stale", "tenant.updated", "tenant", "tenant_01", "tenant_01", 2, map[string]interface{}{
 		"externalId": "tenant_01",
-		"name":       "过期名称",
+		"name":       "Expired Name",
 	})
 	for _, event := range []map[string]interface{}{create, update} {
 		resp := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", event, "integration_token")
@@ -349,7 +349,7 @@ func TestGatewayIntegrationIgnoresStaleVersionsAndSoftDeletes(t *testing.T) {
 
 	deleted := gatewayIntegrationEvent("evt_tenant_delete", "tenant.deleted", "tenant", "tenant_01", "tenant_01", 4, map[string]interface{}{
 		"externalId": "tenant_01",
-		"name":       "最新名称",
+		"name":       "Latest Name",
 	})
 	deleteResponse := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", deleted, "integration_token")
 	if deleteResponse.Code != http.StatusOK {
@@ -359,7 +359,7 @@ func TestGatewayIntegrationIgnoresStaleVersionsAndSoftDeletes(t *testing.T) {
 	if err := store.db.First(&tenant, "external_tenant_id = ?", "tenant_01").Error; err != nil {
 		t.Fatal(err)
 	}
-	if tenant.Name != "最新名称" || tenant.Status != integrationStatusDeleted || tenant.DeletedAt == nil || tenant.Version != 4 {
+	if tenant.Name != "Latest Name" || tenant.Status != integrationStatusDeleted || tenant.DeletedAt == nil || tenant.Version != 4 {
 		t.Fatalf("expected retained soft-deleted projection, got %+v", tenant)
 	}
 }
@@ -369,7 +369,7 @@ func TestGatewayIntegrationReportsMissingProjectionDependency(t *testing.T) {
 	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
 	event := gatewayIntegrationEvent("evt_org_create", "organization.created", "organization", "org_01", "tenant_missing", 1, map[string]interface{}{
 		"externalId":       "org_01",
-		"name":             "平台工程",
+		"name":             "Platform Engineering",
 		"parentExternalId": nil,
 	})
 
@@ -499,13 +499,13 @@ func TestGatewayProjectProjectionCreatesServingProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	project, found := store.GetProject(projection.ID)
-	if !found || project.Name != "智能客服" || project.Status != StatusActive {
+	if !found || project.Name != "Intelligent Support" || project.Status != StatusActive {
 		t.Fatalf("expected active serving project, got found=%v project=%+v", found, project)
 	}
 
 	archived := gatewayIntegrationEvent("evt_project_archived", "project.archived", "project", "project_01", "tenant_01", 2, map[string]interface{}{
 		"externalId":      "project_01",
-		"name":            "智能客服",
+		"name":            "Intelligent Support",
 		"ownerExternalId": "user_01",
 	})
 	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", archived, "integration_token")
@@ -610,7 +610,7 @@ func TestGatewayModelAccessKeyLifecycleIsTenantScopedAndIdempotent(t *testing.T)
 	for key, value := range request {
 		changedRequest[key] = value
 	}
-	changedRequest["name"] = "复用请求号的不同名称"
+	changedRequest["name"] = "Different Request Name"
 	conflict := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", changedRequest, "integration_token")
 	if conflict.Code != http.StatusConflict || !jsonBodyHasCode(conflict.Body, "model_access_key_request_conflict") {
 		t.Fatalf("expected request ID conflict, got %d: %s", conflict.Code, conflict.Body)
@@ -727,6 +727,16 @@ func TestGatewayModelAccessKeyLifecycleIsTenantScopedAndIdempotent(t *testing.T)
 	}
 	if len(usagePayload.Data.Timeseries) != 1 || usagePayload.Data.Timeseries[0].Date != "2026-07-26" || usagePayload.Data.Timeseries[0].TotalTokens != 125 {
 		t.Fatalf("unexpected requested-timezone usage: %+v", usagePayload.Data.Timeseries)
+	}
+	partialDaysUsage := doJSON(t, app, http.MethodGet, "/api/internal/usage?tenant_id=tenant_01&date_from=2026-07-27T12:00:00%2B08:00&date_to=2026-07-28T10:00:00%2B08:00", nil, "integration_token")
+	if partialDaysUsage.Code != http.StatusOK {
+		t.Fatalf("expected partial-day usage range, got %d: %s", partialDaysUsage.Code, partialDaysUsage.Body)
+	}
+	if err := json.Unmarshal([]byte(partialDaysUsage.Body), &usagePayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(usagePayload.Data.Timeseries) != 2 || usagePayload.Data.Timeseries[0].Date != "2026-07-27" || usagePayload.Data.Timeseries[1].Date != "2026-07-28" {
+		t.Fatalf("expected one bucket per calendar date, got %+v", usagePayload.Data.Timeseries)
 	}
 	crossTenantUsage := doJSON(t, app, http.MethodGet, "/api/internal/usage?tenant_id=tenant_02&date_from=2026-07-27T00:00:00Z&date_to=2026-07-27T23:59:59Z", nil, "integration_token")
 	if crossTenantUsage.Code != http.StatusOK || !strings.Contains(crossTenantUsage.Body, `"request_count":0`) {
@@ -956,7 +966,7 @@ func TestGatewayModelAccessKeyRequiresMatchingWorkloadType(t *testing.T) {
 	seedGatewayModelAccessKeyScope(t, app)
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_typed_workload", "workload.created", "workload", "application_01", "tenant_01", 1, map[string]interface{}{
 		"externalId": "application_01", "projectExternalId": "project_01", "ownerExternalId": "user_01",
-		"name": "客服助手", "workloadType": "application", "environment": "production", "status": "active",
+		"name": "Support Assistant", "workloadType": "application", "environment": "production", "status": "active",
 	}))
 	response := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
 		"request_id": "request_wrong_workload_type", "tenant_id": "tenant_01", "project_id": "project_01",
@@ -1024,14 +1034,14 @@ func TestGatewayPrincipalIgnoresOlderMembershipGeneration(t *testing.T) {
 	seedGatewayModelAccessKeyScope(t, app)
 
 	readded := gatewayIntegrationEvent("evt_member_generation_two", "tenant_member.added", "tenant_member", "membership_02", "tenant_01", 1, map[string]interface{}{
-		"externalId": "membership_02", "principalExternalId": "user_01", "name": "张晨", "status": "active",
+		"externalId": "membership_02", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "active",
 	})
 	readded["occurredAt"] = "2026-07-24T08:01:00.000Z"
 	applyGatewayIntegrationEventForTest(t, app, readded)
 	created := createGatewayModelAccessKeyForTest(t, app, "request_after_readd", "user", "user_01")
 
 	lateRemoval := gatewayIntegrationEvent("evt_old_membership_late_remove", "tenant_member.removed", "tenant_member", "membership_01", "tenant_01", 2, map[string]interface{}{
-		"externalId": "membership_01", "principalExternalId": "user_01", "name": "张晨", "status": "removed",
+		"externalId": "membership_01", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "removed",
 	})
 	lateRemoval["occurredAt"] = "2026-07-24T08:01:00.000Z"
 	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", lateRemoval, "integration_token")
@@ -1053,46 +1063,46 @@ func TestGatewayManagedUserKeyFollowsTenantAndPrincipalStatus(t *testing.T) {
 	workloadKey := createGatewayModelAccessKeyForTest(t, app, "request_owned_workload_status", "application", "owned_application_01")
 
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_disabled", "tenant.disabled", "tenant", "tenant_01", "tenant_01", 2, map[string]interface{}{
-		"externalId": "tenant_01", "name": "企业一", "status": "inactive",
+		"externalId": "tenant_01", "name": "Enterprise One", "status": "inactive",
 	}))
 	assertGatewayModelAccessKeyDisabled(t, store, created.APIKey)
 	assertGatewayModelAccessKeyDisabled(t, store, workloadKey.APIKey)
 	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusDisabled)
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_reenabled", "tenant.updated", "tenant", "tenant_01", "tenant_01", 3, map[string]interface{}{
-		"externalId": "tenant_01", "name": "企业一", "status": "active",
+		"externalId": "tenant_01", "name": "Enterprise One", "status": "active",
 	}))
 	assertGatewayModelAccessKeyActive(t, store, created.APIKey)
 	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusActive)
 
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_member_disabled", "tenant_member.removed", "tenant_member", "membership_01", "tenant_01", 2, map[string]interface{}{
-		"externalId": "membership_01", "principalExternalId": "user_01", "name": "张晨", "status": "inactive",
+		"externalId": "membership_01", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "inactive",
 	}))
 	assertGatewayModelAccessKeyDisabled(t, store, created.APIKey)
 	assertGatewayModelAccessKeyActive(t, store, workloadKey.APIKey)
 	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusDisabled)
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_member_reenabled", "tenant_member.updated", "tenant_member", "membership_01", "tenant_01", 3, map[string]interface{}{
-		"externalId": "membership_01", "principalExternalId": "user_01", "name": "张晨", "status": "active",
+		"externalId": "membership_01", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "active",
 	}))
 	assertGatewayModelAccessKeyActive(t, store, created.APIKey)
 	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusActive)
 
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_member_removed", "tenant_member.removed", "tenant_member", "membership_01", "tenant_01", 4, map[string]interface{}{
-		"externalId": "membership_01", "principalExternalId": "user_01", "name": "张晨", "status": "removed",
+		"externalId": "membership_01", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "removed",
 	}))
 	assertGatewayModelAccessKeyRevoked(t, store, created)
 	assertGatewayModelAccessKeyActive(t, store, workloadKey.APIKey)
 	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusRevoked)
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_member_readded", "tenant_member.added", "tenant_member", "membership_01", "tenant_01", 5, map[string]interface{}{
-		"externalId": "membership_01", "principalExternalId": "user_01", "name": "张晨", "status": "active",
+		"externalId": "membership_01", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "active",
 	}))
 	assertGatewayModelAccessKeyDisabled(t, store, created.APIKey)
 
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_deleted", "tenant.deleted", "tenant", "tenant_01", "tenant_01", 4, map[string]interface{}{
-		"externalId": "tenant_01", "name": "企业一", "status": "deleted",
+		"externalId": "tenant_01", "name": "Enterprise One", "status": "deleted",
 	}))
 	assertGatewayModelAccessKeyRevoked(t, store, workloadKey)
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_recreated", "tenant.updated", "tenant", "tenant_01", "tenant_01", 5, map[string]interface{}{
-		"externalId": "tenant_01", "name": "企业一", "status": "active",
+		"externalId": "tenant_01", "name": "Enterprise One", "status": "active",
 	}))
 	assertGatewayModelAccessKeyDisabled(t, store, workloadKey.APIKey)
 }
@@ -1125,6 +1135,7 @@ func TestGatewayManagedUserKeyFollowsOrganizationLifecycle(t *testing.T) {
 		"externalId": "org_01", "name": "Organization one", "status": StatusDisabled,
 	}))
 	assertGatewayModelAccessKeyDisabled(t, store, created.APIKey)
+	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusDisabled)
 	disabledCreate := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
 		"request_id": "request_disabled_org", "tenant_id": "tenant_01", "project_id": "project_01",
 		"principal_type": "user", "principal_id": "user_01", "name": "Disabled organization",
@@ -1137,10 +1148,12 @@ func TestGatewayManagedUserKeyFollowsOrganizationLifecycle(t *testing.T) {
 		"externalId": "org_01", "name": "Organization one", "status": StatusActive,
 	}))
 	assertGatewayModelAccessKeyActive(t, store, created.APIKey)
+	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusActive)
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_org_member_removed", "organization_member.removed", "organization_member", "org_membership_01", "tenant_01", 2, map[string]interface{}{
 		"externalId": "org_membership_01", "principalExternalId": "user_01", "organizationExternalId": "org_01", "status": StatusDisabled,
 	}))
 	assertGatewayModelAccessKeyDisabled(t, store, created.APIKey)
+	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusDisabled)
 	missingMembershipCreate := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
 		"request_id": "request_missing_org_membership", "tenant_id": "tenant_01", "project_id": "project_01",
 		"principal_type": "user", "principal_id": "user_01", "name": "Missing membership",
@@ -1152,11 +1165,32 @@ func TestGatewayManagedUserKeyFollowsOrganizationLifecycle(t *testing.T) {
 		"externalId": "org_membership_01", "principalExternalId": "user_01", "organizationExternalId": "org_01", "status": StatusActive,
 	}))
 	assertGatewayModelAccessKeyActive(t, store, created.APIKey)
+	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusActive)
 
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_org_deleted", "organization.deleted", "organization", "org_01", "tenant_01", 4, map[string]interface{}{
 		"externalId": "org_01", "name": "Organization one", "status": integrationStatusDeleted,
 	}))
 	assertGatewayModelAccessKeyRevoked(t, store, created)
+}
+
+func TestGatewayProjectDeleteRevokesKeysAcrossRecreation(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	seedGatewayModelAccessKeyScope(t, app)
+	created := createGatewayModelAccessKeyForTest(t, app, "request_project_delete", "user", "user_01")
+
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_project_deleted", "project.deleted", "project", "project_01", "tenant_01", 2, map[string]interface{}{
+		"externalId": "project_01", "name": "Project one", "ownerExternalId": "user_01", "status": integrationStatusDeleted,
+	}))
+	assertGatewayModelAccessKeyRevoked(t, store, created)
+
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_project_recreated", "project.updated", "project", "project_01", "tenant_01", 3, map[string]interface{}{
+		"externalId": "project_01", "name": "Project one recreated", "ownerExternalId": "user_01", "status": StatusActive,
+	}))
+	if _, _, err := store.ValidateAPIKey(created.APIKey, ""); err == nil {
+		t.Fatal("expected a deleted project's old secret to remain unusable after recreation")
+	}
+	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusRevoked)
 }
 
 func TestGatewayManagedWorkloadKeyFollowsWorkloadStatus(t *testing.T) {
@@ -1165,7 +1199,7 @@ func TestGatewayManagedWorkloadKeyFollowsWorkloadStatus(t *testing.T) {
 	seedGatewayModelAccessKeyScope(t, app)
 	workloadPayload := map[string]interface{}{
 		"externalId": "application_01", "projectExternalId": "project_01", "ownerExternalId": "user_01",
-		"name": "客服助手", "workloadType": "application", "environment": "production", "status": "active",
+		"name": "Support Assistant", "workloadType": "application", "environment": "production", "status": "active",
 	}
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_workload_created", "workload.created", "workload", "application_01", "tenant_01", 1, workloadPayload))
 	created := createGatewayModelAccessKeyForTest(t, app, "request_workload_status", "application", "application_01")
@@ -1262,7 +1296,7 @@ func seedGatewayModelAccessKeyScope(t *testing.T, app http.Handler) {
 	events := []map[string]interface{}{
 		gatewayIntegrationEvent("evt_scope_tenant", "tenant.created", "tenant", "tenant_01", "tenant_01", 1, map[string]interface{}{
 			"externalId": "tenant_01",
-			"name":       "企业一",
+			"name":       "Enterprise One",
 		}),
 		gatewayIntegrationEvent("evt_scope_member", "tenant_member.added", "tenant_member", "membership_01", "tenant_01", 1, map[string]interface{}{
 			"externalId":          "membership_01",
@@ -1272,7 +1306,7 @@ func seedGatewayModelAccessKeyScope(t *testing.T, app http.Handler) {
 		}),
 		gatewayIntegrationEvent("evt_scope_project", "project.created", "project", "project_01", "tenant_01", 1, map[string]interface{}{
 			"externalId":      "project_01",
-			"name":            "智能客服",
+			"name":            "Intelligent Support",
 			"ownerExternalId": "user_01",
 		}),
 	}

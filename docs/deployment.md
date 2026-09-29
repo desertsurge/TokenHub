@@ -173,7 +173,7 @@ cp deploy/.env.example deploy/.env
 Review `deploy/.env` before starting:
 
 - `TOKENHUB_ADMIN_TOKEN`: Optional static Admin API token. Set at least 32 random bytes when operational automation needs it; otherwise leave the placeholder to disable it.
-- `TOKENHUB_INTEGRATION_TOKEN`: Optional dedicated credential for external platform integration events and model access key control endpoints. Set at least 32 random bytes when integration endpoints are enabled.
+- `TOKENHUB_INTEGRATION_TOKEN`: Optional dedicated credential for external platform integration events and model access key control endpoints. Use a different random value from `TOKENHUB_ADMIN_TOKEN` and set at least 32 random bytes when integration endpoints are enabled.
 - `TOKENHUB_INTEGRATION_CONTEXT_SECRET`: Independent secret used to verify the signed tenant context on tenant-scoped integration requests. Use the same random value in the external integration service, deploy its signed-request support first, and then enable this setting. Production deployments with an integration token require at least 32 bytes.
 - `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`: Optional initial `admin` password. Set at least 12 bytes, or leave the placeholder so TokenHub generates one.
 - `TOKENHUB_SECRET_KEY`: Backend encryption root key. PostgreSQL and existing SQLite databases require at least 32 stable bytes. A brand-new file-backed SQLite deployment can leave the placeholder so TokenHub generates a `0600` key file beside the database.

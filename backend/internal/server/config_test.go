@@ -229,10 +229,25 @@ func TestProductionIntegrationRequiresTenantContextSecret(t *testing.T) {
 	}
 }
 
+func TestProductionConfigRejectsReusedAdminAndIntegrationTokens(t *testing.T) {
+	token := strings.Repeat("x", 32)
+	config := Config{
+		Environment:      "production",
+		AdminToken:       token,
+		IntegrationToken: token,
+		SecretKey:        strings.Repeat("s", 32),
+	}
+	err := config.ValidateForStartup()
+	if err == nil || !strings.Contains(err.Error(), "TOKENHUB_ADMIN_TOKEN and TOKENHUB_INTEGRATION_TOKEN must be different") {
+		t.Fatalf("expected token separation validation error: %v", err)
+	}
+}
+
 func TestProductionConfigAcceptsDisabledOptionalBootstrapCredentials(t *testing.T) {
 	config := Config{
-		Environment: "production",
-		SecretKey:   strings.Repeat("s", 32),
+		Environment:      "production",
+		IntegrationToken: strings.Repeat("i", 32),
+		SecretKey:        strings.Repeat("s", 32),
 	}
 	if err := config.ValidateForStartup(); err != nil {
 		t.Fatalf("expected optional bootstrap credentials to be disabled: %v", err)
@@ -243,6 +258,7 @@ func TestProductionConfigRejectsWeakEnabledOptionalCredentials(t *testing.T) {
 	config := Config{
 		Environment:            "production",
 		AdminToken:             "short-token",
+		IntegrationToken:       strings.Repeat("i", 32),
 		BootstrapAdminPassword: "short",
 		SecretKey:              strings.Repeat("s", 32),
 	}

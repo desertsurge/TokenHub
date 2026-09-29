@@ -15,8 +15,8 @@ func TestGatewayIntegrationMigrationIsRegistered(t *testing.T) {
 		registered[migration.Version] = migration.Name
 	}
 	for version, name := range map[int64]string{
-		7:  "add-gateway-integration-schema",
-		8:  "complete-gateway-integration-schema",
+		7:  "add-gateway-control-plane-schema-sqlite",
+		8:  "add-gateway-control-plane-schema-postgres",
 		9:  "add-gateway-managed-users",
 		10: "add-admin-oauth-oidc-nonce",
 		11: "add-gateway-cost-center-projections",

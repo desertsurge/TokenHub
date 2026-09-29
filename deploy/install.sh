@@ -474,13 +474,17 @@ elif [[ "$environment" != "dev" && "$environment" != "development" && "$environm
     "dev_integration_token" "change-me-tokenhub-integration-token"
   validate_secret "TOKENHUB_INTEGRATION_CONTEXT_SECRET" "$integration_context_secret" 32 \
     "dev_integration_context_secret" "change-me-tokenhub-integration-context-secret"
+  if [ -n "$(trim_whitespace "$admin_token")" ] &&
+    [ "$(trim_whitespace "$admin_token")" = "$(trim_whitespace "$integration_token")" ]; then
+    validation_errors+=("TOKENHUB_ADMIN_TOKEN and TOKENHUB_INTEGRATION_TOKEN must be different")
+  fi
   validate_secret "TOKENHUB_SECRET_KEY" "$secret_key" 32 "$root_key_can_be_unset" \
     "dev_tokenhub_secret_key" "change-me-tokenhub-secret-key"
   validate_secret "TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD" "$bootstrap_admin_password" 12 true \
     "admin123456" "change-me-tokenhub-admin-password"
 fi
 
-unset admin_token bootstrap_admin_password database_url integration_context_secret root_key_can_be_unset secret_key
+unset admin_token integration_token bootstrap_admin_password database_url integration_context_secret root_key_can_be_unset secret_key
 
 if [ "${#validation_errors[@]}" -gt 0 ]; then
   error "deployment configuration is unsafe for $environment:"
