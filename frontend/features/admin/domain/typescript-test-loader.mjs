@@ -51,7 +51,7 @@ async function rewriteRelativeImports(outputText, fileName, rootDir, outputDir, 
     const dependency = resolveTypeScriptImport(dirname(fileName), specifier);
     if (!dependency) continue;
     const dependencyOutput = await emitTypeScriptModule(dependency, rootDir, outputDir, emitted);
-    let rewritten = relative(dirname(emittedModulePath(fileName, rootDir, outputDir)), dependencyOutput);
+    let rewritten = relative(dirname(emittedModulePath(fileName, rootDir, outputDir)), dependencyOutput).replaceAll("\\", "/");
     if (!rewritten.startsWith(".")) rewritten = `./${rewritten}`;
     replacements.push({ start: match.index + match[0].indexOf(specifier), end: match.index + match[0].indexOf(specifier) + specifier.length, value: rewritten });
   }

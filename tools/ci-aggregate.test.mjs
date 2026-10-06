@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-const aggregate = workflow.match(/\n  ci:\n[\s\S]*$/)?.[0] ?? "";
+const aggregate = workflow.match(/\r?\n  ci:\r?\n[\s\S]*$/)?.[0] ?? "";
 
 test("stable CI aggregate requires every compatibility job", () => {
-  const needsBlock = aggregate.match(/\n    needs:\n((?:      - [^\n]+\n)+)/)?.[1] ?? "";
-  const needs = [...needsBlock.matchAll(/- ([^\n]+)/g)].map((match) => match[1]).sort();
+  const needsBlock = aggregate.match(/\r?\n    needs:\r?\n((?:      - [^\r\n]+\r?\n)+)/)?.[1] ?? "";
+  const needs = [...needsBlock.matchAll(/- ([^\r\n]+)/g)].map((match) => match[1]).sort();
   assert.deepEqual(needs, [
     "backend",
     "backend-db-n1",

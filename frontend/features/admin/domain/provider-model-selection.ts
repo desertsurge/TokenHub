@@ -18,8 +18,8 @@ type ProviderCatalogModelFilter = {
   discoveredCategory: string;
 };
 
-// Provider 模型目录展示渠道商目录中的全部模型，可按分类筛选；
-// 是否已有对应对外模型不影响上游模型的引入。
+// The provider catalog exposes every upstream model and may filter by category.
+// Existing public models do not affect whether an upstream model can be imported.
 export function providerCatalogModelIsSelectable(filter: ProviderCatalogModelFilter) {
   if (filter.quickAPIFlow || filter.supportsModelPreview) return true;
   if (filter.selectedCategory !== "all" && filter.discoveredCategory !== filter.selectedCategory) return false;

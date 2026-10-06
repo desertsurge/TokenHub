@@ -31,6 +31,8 @@ export const KNOWN_CONSUMERS = {
     ["TOKENHUB_STOP_GRACE_PERIOD", "docker-compose stop_grace_period"],
     ["TOKENHUB_API_BASE_URL", "Next.js frontend runtime configuration"],
     ["TOKENHUB_NGINX_CLIENT_MAX_BODY_SIZE", "nginx load-balancer client_max_body_size (remote-postgres)"],
+    ["TOKENHUB_POSTGRES_NETWORK", "docker-compose database network name"],
+    ["TOKENHUB_POSTGRES_NETWORK_EXTERNAL", "docker-compose database network ownership"],
   ]),
   "backend/.env.example": new Map(),
 };

@@ -326,7 +326,7 @@ Only use `down -v` when you intentionally want to delete local data.
 The dedicated integration token authenticates these internal endpoints and must not be replaced by the Admin Token or a model access key:
 
 - `POST /api/internal/integration/events`: apply tenant, organization, principal, project, and workload projections.
-- `GET /api/internal/integration/reconciliation?tenant_id=...`: return the tenant Inbox event watermark, per-aggregate event counts, and `projection_summaries` for upstream reconciliation. Each projection summary contains `count`, `max_version`, and a SHA-256 `digest` over records sorted by external ID. The digest covers stable topology fields such as relationships, names, lifecycle status, version, and deletion markers without returning event payloads or projection records.
+- `GET /api/internal/integration/reconciliation?tenant_id=...`: return the tenant Inbox event watermark, per-aggregate event counts, and `projection_summaries` for upstream reconciliation. Each projection summary contains `count`, `max_version`, and a SHA-256 `digest` over records sorted by external ID. The digest covers stable topology fields such as relationships, names, lifecycle status, version, and deletion markers without returning event payloads or projection records. Set `include_details=1` to include a bounded page for every projection type; `details_page` defaults to `1`, `details_page_size` defaults to and is capped at `100`, and `projection_detail_totals` reports each type's full count.
 - `GET /api/internal/model-access-keys?tenant_id=...`: list integration-managed model access keys within one tenant; optional `project_id`, `principal_id`, and effective `status` filters are evaluated by TokenHub. The endpoint supports `page` and `page_size` (maximum 100) and returns pagination metadata.
 - `POST /api/internal/model-access-keys`: issue a model access key for an active projected project and principal/workload. `request_id` is mandatory and idempotent; only the first successful response contains `api_key`.
 - `POST /api/internal/model-access-keys/{id}/reveal`: reveal an active key after exact `tenant_id`, `principal_type`, and `principal_id` ownership checks. Every successful reveal is audited and the key value is never included in audit data.
@@ -393,6 +393,8 @@ Options: `--rebuild`, `--reset` to drop the local database, `--backend-port N`, 
 | `TOKENHUB_DB_PASSWORD` | empty | PostgreSQL password; used only when `TOKENHUB_DB_HOST` is set |
 | `TOKENHUB_DB_NAME` | empty | PostgreSQL database name; used only when `TOKENHUB_DB_HOST` is set |
 | `TOKENHUB_DB_SSLMODE` | `disable` | PostgreSQL sslmode; used only when `TOKENHUB_DB_HOST` is set |
+| `TOKENHUB_POSTGRES_NETWORK` | `tokenhub-database` | Docker network name that connects the managed application container to an externally managed PostgreSQL container |
+| `TOKENHUB_POSTGRES_NETWORK_EXTERNAL` | `false` | Set to `true` when `TOKENHUB_POSTGRES_NETWORK` already exists and is managed outside this Compose project. The external network must exist before startup |
 | `TOKENHUB_SQLITE_BACKUP_DIR` | `/app/data/backups` | Backup output directory |
 | `TOKENHUB_MODEL_CATALOG_FILE` | `/opt/tokenhub/current/catalog/model-catalog.yaml` | Standard model catalog file in managed deployments |
 | `TOKENHUB_PROVIDER_CATALOG_FILE` | `/opt/tokenhub/current/catalog/provider-catalog.json` | Provider templates and candidate-model catalog file in managed deployments |

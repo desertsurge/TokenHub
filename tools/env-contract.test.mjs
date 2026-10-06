@@ -309,4 +309,13 @@ describe("Compose database fallback", () => {
     assert.ok(compose.includes("name: ${TOKENHUB_POSTGRES_NETWORK:-"), "TOKENHUB_POSTGRES_NETWORK is missing from base Compose");
     assert.ok(compose.includes("external: ${TOKENHUB_POSTGRES_NETWORK_EXTERNAL:-"), "TOKENHUB_POSTGRES_NETWORK_EXTERNAL is missing from base Compose");
   });
+
+  it("documents database network ownership in every deployment guide", () => {
+    for (const fileName of ["docs/deployment.md", "docs/zh-CN/deployment.md", "docs/ja/deployment.md"]) {
+      const guide = readFileSync(join(REPOSITORY_ROOT, fileName), "utf8");
+      for (const name of ["TOKENHUB_POSTGRES_NETWORK", "TOKENHUB_POSTGRES_NETWORK_EXTERNAL"]) {
+        assert.ok(guide.includes(`\`${name}\``), `${name} is missing from ${fileName}`);
+      }
+    }
+  });
 });

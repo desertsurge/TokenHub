@@ -326,7 +326,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 以下の内部 API は専用 Integration Token で認証します。Admin Token やモデルアクセスキーで代用してはいけません。
 
 - `POST /api/internal/integration/events`: テナント、組織、プリンシパル、プロジェクト、ワークロードの投影を適用します。
-- `GET /api/internal/integration/reconciliation?tenant_id=...`: 上流プラットフォームの照合用に、指定テナントの Inbox イベントウォーターマーク、集約種別ごとのイベント件数、`projection_summaries` を返します。各投影サマリーには `count`、`max_version`、SHA-256 `digest` が含まれます。ダイジェストは外部 ID 順に計算され、関係、名前、ライフサイクル状態、バージョン、削除マーカーなどの安定したトポロジーフィールドを対象としますが、イベント payload や投影レコードは返しません。
+- `GET /api/internal/integration/reconciliation?tenant_id=...`: 上流プラットフォームの照合用に、指定テナントの Inbox イベントウォーターマーク、集約種別ごとのイベント件数、`projection_summaries` を返します。各投影サマリーには `count`、`max_version`、SHA-256 `digest` が含まれます。ダイジェストは外部 ID 順に計算され、関係、名前、ライフサイクル状態、バージョン、削除マーカーなどの安定したトポロジーフィールドを対象としますが、イベント payload や投影レコードは返しません。`include_details=1` を指定すると、投影種別ごとに上限付きの詳細ページを返します。`details_page` の既定値は `1`、`details_page_size` の既定値と上限は `100` で、`projection_detail_totals` は種別ごとの全件数を示します。
 - `GET /api/internal/model-access-keys?tenant_id=...`: 1 テナント内の連携管理モデルアクセスキーを一覧します。任意の `project_id`、`principal_id`、有効な `status` フィルターは TokenHub 側で処理されます。`page` と `page_size`（最大 100）をサポートし、ページング情報を返します。
 - `POST /api/internal/model-access-keys`: 有効な投影済みプロジェクトとプリンシパル/ワークロードにモデルアクセスキーを発行します。`request_id` は必須かつ冪等で、`api_key` は最初の成功レスポンスだけに含まれます。
 - `POST /api/internal/model-access-keys/{id}/reveal`: `tenant_id`、`principal_type`、`principal_id` の所有権を厳密に検証した後、active なキーを表示します。成功した表示はすべて監査され、キー値は監査データに含まれません。
@@ -393,6 +393,8 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_DB_PASSWORD` | 空 | PostgreSQL パスワード。`TOKENHUB_DB_HOST` を設定した場合にのみ使用されます |
 | `TOKENHUB_DB_NAME` | 空 | PostgreSQL データベース名。`TOKENHUB_DB_HOST` を設定した場合にのみ使用されます |
 | `TOKENHUB_DB_SSLMODE` | `disable` | PostgreSQL sslmode。`TOKENHUB_DB_HOST` を設定した場合にのみ使用されます |
+| `TOKENHUB_POSTGRES_NETWORK` | `tokenhub-database` | 管理対象アプリケーションコンテナを外部管理の PostgreSQL コンテナへ接続する Docker ネットワーク名 |
+| `TOKENHUB_POSTGRES_NETWORK_EXTERNAL` | `false` | `TOKENHUB_POSTGRES_NETWORK` が既に存在し、この Compose プロジェクトの外部で管理されている場合は `true` に設定します。外部ネットワークは起動前に作成してください |
 | `TOKENHUB_SQLITE_BACKUP_DIR` | `/app/data/backups` | バックアップ出力ディレクトリ |
 | `TOKENHUB_MODEL_CATALOG_FILE` | `/opt/tokenhub/current/catalog/model-catalog.yaml` | 管理対象デプロイの標準モデルカタログファイル |
 | `TOKENHUB_PROVIDER_CATALOG_FILE` | `/opt/tokenhub/current/catalog/provider-catalog.json` | 管理対象デプロイの Provider テンプレートと候補モデルのカタログファイル |

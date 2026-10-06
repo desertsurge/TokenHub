@@ -326,7 +326,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 以下内部接口统一使用专用 Integration Token 认证，不得替换为 Admin Token 或模型访问 Key：
 
 - `POST /api/internal/integration/events`：同步租户、组织、人员、项目和工作负载投影。
-- `GET /api/internal/integration/reconciliation?tenant_id=...`：返回指定租户的 Inbox 事件水位、各业务对象事件数量和 `projection_summaries`，用于上游平台对账。每项投影摘要包含 `count`、`max_version` 和 SHA-256 `digest`；摘要按外部 ID 排序计算，并覆盖关系、名称、生命周期状态、版本和删除标记等稳定拓扑字段，但不返回事件 payload 或投影记录。
+- `GET /api/internal/integration/reconciliation?tenant_id=...`：返回指定租户的 Inbox 事件水位、各业务对象事件数量和 `projection_summaries`，用于上游平台对账。每项投影摘要包含 `count`、`max_version` 和 SHA-256 `digest`；摘要按外部 ID 排序计算，并覆盖关系、名称、生命周期状态、版本和删除标记等稳定拓扑字段，但不返回事件 payload 或投影记录。设置 `include_details=1` 可为每种投影类型返回有界的明细分页；`details_page` 默认为 `1`，`details_page_size` 默认为 `100` 且最大为 `100`，`projection_detail_totals` 返回各类型的完整数量。
 - `GET /api/internal/model-access-keys?tenant_id=...`：在单一租户范围内查询集成管理的模型访问 Key；可选的 `project_id`、`principal_id` 和有效 `status` 筛选由 TokenHub 执行。接口支持 `page` 和 `page_size`（最大 100），并返回分页元数据。
 - `POST /api/internal/model-access-keys`：为已生效的项目和人员/工作负载签发模型访问 Key。`request_id` 必填且幂等，仅首次成功响应返回 `api_key` 明文。
 - `POST /api/internal/model-access-keys/{id}/reveal`：精确校验 `tenant_id`、`principal_type`、`principal_id` 所有权后展示 active Key。每次成功展示都会写审计，审计数据不包含 Key 原文。
@@ -393,6 +393,8 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_DB_PASSWORD` | 空 | PostgreSQL 密码；仅在设置了 `TOKENHUB_DB_HOST` 时生效 |
 | `TOKENHUB_DB_NAME` | 空 | PostgreSQL 数据库名；仅在设置了 `TOKENHUB_DB_HOST` 时生效 |
 | `TOKENHUB_DB_SSLMODE` | `disable` | PostgreSQL sslmode；仅在设置了 `TOKENHUB_DB_HOST` 时生效 |
+| `TOKENHUB_POSTGRES_NETWORK` | `tokenhub-database` | 将托管应用容器连接到外部 PostgreSQL 容器的 Docker 网络名称 |
+| `TOKENHUB_POSTGRES_NETWORK_EXTERNAL` | `false` | 当 `TOKENHUB_POSTGRES_NETWORK` 已存在且由当前 Compose 项目之外管理时设为 `true`；启动前必须先创建该外部网络 |
 | `TOKENHUB_SQLITE_BACKUP_DIR` | `/app/data/backups` | 备份目录 |
 | `TOKENHUB_MODEL_CATALOG_FILE` | `/opt/tokenhub/current/catalog/model-catalog.yaml` | 托管部署中的标准模型目录文件 |
 | `TOKENHUB_PROVIDER_CATALOG_FILE` | `/opt/tokenhub/current/catalog/provider-catalog.json` | 托管部署中的 Provider 模板与候选模型目录文件 |
