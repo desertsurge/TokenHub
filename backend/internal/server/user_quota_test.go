@@ -117,6 +117,51 @@ func TestUserQuotaUsageIsIsolatedWithinTenant(t *testing.T) {
 	store.FinishCall(callB, RouteSelection{}, Usage{}, http.StatusOK, "", "127.0.0.1", "tenant-quota-test")
 }
 
+func TestUnscopedUserQuotaUsageExcludesTenantBuckets(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Now().UTC()
+	for _, item := range []struct {
+		keyID            string
+		tenantExternalID string
+		tokens           int64
+	}{
+		{keyID: "key_unscoped_usage", tokens: 3},
+		{keyID: "key_tenant_usage", tenantExternalID: "tenant-a", tokens: 11},
+	} {
+		if err := store.db.Create(&QuotaBucket{
+			KeyID: item.keyID, Scope: "day", Bucket: dayBucket(now), AttributedUserID: "usr_shared_scope", TenantExternalID: item.tenantExternalID,
+			QuotaCounter: QuotaCounter{TotalTokens: item.tokens},
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	usage, supported, err := store.GetQuotaPolicyUsage("user", "usr_shared_scope")
+	if err != nil || !supported || usage.Daily.TotalTokens != 3 {
+		t.Fatalf("unscoped usage = %+v supported=%v err=%v, want only 3 unscoped tokens", usage, supported, err)
+	}
+}
+
+func TestUnscopedUserQuotaDoesNotApplyToTenantScopedKey(t *testing.T) {
+	store := NewMemoryStore()
+	userID := "usr_unscoped_quota"
+	project := store.CreateProject(Project{ID: "prj_unscoped_quota", Name: "Tenant project", OwnerUserID: userID, Status: StatusActive})
+	key, _, err := store.CreateAPIKey(project.ID, APIKey{ID: "key_unscoped_quota", Name: "tenant key", OwnerUserID: userID, TenantExternalID: "tenant-scoped", Status: StatusActive}, "thk_unscoped_quota")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.CreateResource("quota-policies", AdminResource{ID: "quota_unscoped_user", Name: "Legacy unscoped user quota", Status: StatusActive, Fields: map[string]any{
+		"scope": "user", "scope_id": userID, "daily_tokens": int64(1),
+	}})
+	store.AddModel(Model{Name: "unscoped-user-quota-model", Modality: "chat", Status: StatusActive})
+
+	call, err := store.StartCall(context.Background(), project, key, "unscoped-user-quota-model", 2)
+	if err != nil {
+		t.Fatalf("unscoped user policy leaked into tenant-scoped admission: %v", err)
+	}
+	store.FinishCall(call, RouteSelection{}, Usage{}, http.StatusOK, "", "127.0.0.1", "unscoped-user-quota-test")
+}
+
 func TestTenantUserQuotaHistorySurvivesAPIKeyDeletion(t *testing.T) {
 	store := NewMemoryStore()
 	userID := "usr_deleted_tenant_quota"
