@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -375,6 +376,37 @@ func TestIdentityProviderRedirectURIRejectsInsecureExternalHTTP(t *testing.T) {
 	provider.Fields["redirect_uri"] = "http://localhost:8080/api/admin/auth/oauth/callback"
 	if got, err := server.identityProviderRedirectURI(provider, request); err != nil || got != provider.Fields["redirect_uri"] {
 		t.Fatalf("loopback callback = %q, err=%v", got, err)
+	}
+}
+
+func TestOAuthBackchannelRequestsRejectRedirects(t *testing.T) {
+	var redirectedRequests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		redirectedRequests.Add(1)
+		writer.Header().Set("content-type", "application/json")
+		_, _ = writer.Write([]byte(`{"access_token":"redirected-token","username":"redirected-user"}`))
+	}))
+	t.Cleanup(target.Close)
+	redirector := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL+request.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redirector.Close)
+
+	if _, _, err := requestOAuthToken(t.Context(), redirector.URL+"/token", url.Values{
+		"grant_type": {"authorization_code"}, "code": {"authorization-code"},
+	}, "client-id", "client-secret"); err == nil {
+		t.Fatal("redirected OAuth token request was accepted")
+	}
+	provider := AdminResource{Fields: map[string]any{
+		"provider_type": "oauth2", "userinfo_url": redirector.URL + "/userinfo",
+	}}
+	server := New(NewMemoryStore())
+	t.Cleanup(func() { _ = server.Shutdown(t.Context()) })
+	if _, err := server.fetchOAuthUserInfo(t.Context(), provider, "access-token", "authorization-code"); err == nil {
+		t.Fatal("redirected OAuth userinfo request was accepted")
+	}
+	if redirectedRequests.Load() != 0 {
+		t.Fatalf("OAuth backchannel redirect target received %d requests", redirectedRequests.Load())
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -117,6 +118,69 @@ func TestVerifyManagedOIDCTokenRequiresAuthorizedPartyForMultipleAudiences(t *te
 	validClaims["azp"] = "client-1"
 	if _, err := verifyManagedOIDCToken(t.Context(), provider, signTestOIDCToken(t, privateKey, validClaims), "nonce-1"); err != nil {
 		t.Fatalf("expected matching azp to pass, got %v", err)
+	}
+}
+
+func TestManagedOIDCMetadataRequestsRejectRedirects(t *testing.T) {
+	var redirectedRequests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		redirectedRequests.Add(1)
+		writer.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{"path": request.URL.Path})
+	}))
+	t.Cleanup(target.Close)
+	redirector := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL+request.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redirector.Close)
+
+	provider := AdminResource{Fields: map[string]any{
+		"issuer_url": "https://issuer.example.test", "discovery_url": redirector.URL + "/discovery",
+	}}
+	if _, err := managedOIDCJWKSURL(t.Context(), provider); err == nil {
+		t.Fatal("redirected OIDC discovery request was accepted")
+	}
+	if _, err := fetchOIDCJWKS(t.Context(), redirector.URL+"/jwks"); err == nil {
+		t.Fatal("redirected OIDC JWKS request was accepted")
+	}
+	if redirectedRequests.Load() != 0 {
+		t.Fatalf("OIDC metadata redirect target received %d requests", redirectedRequests.Load())
+	}
+}
+
+func TestVerifyManagedOIDCTokenRejectsMismatchedOptionalAuthorizedParty(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := managedGatewayProvider()
+	provider.Fields["client_id"] = "client-1"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{"keys": []map[string]string{{
+			"kty": "RSA", "alg": "RS256", "kid": "key-1",
+			"n": base64.RawURLEncoding.EncodeToString(privateKey.PublicKey.N.Bytes()),
+			"e": base64.RawURLEncoding.EncodeToString([]byte{1, 0, 1}),
+		}}})
+	}))
+	defer server.Close()
+	provider.Fields["jwks_url"] = server.URL
+	base := map[string]any{
+		"iss": provider.Fields["issuer_url"], "sub": "subject-1", "aud": "client-1",
+		"nonce": "nonce-1", "exp": time.Now().Add(5 * time.Minute).Unix(),
+	}
+	wrongClaims := cloneClaims(base)
+	wrongClaims["azp"] = "other-client"
+	if _, err := verifyManagedOIDCToken(t.Context(), provider, signTestOIDCToken(t, privateKey, wrongClaims), "nonce-1"); AsHTTPError(err).Code != "oidc_authorized_party_mismatch" {
+		t.Fatalf("expected mismatched optional azp to be rejected, got %v", err)
+	}
+	matchingClaims := cloneClaims(base)
+	matchingClaims["azp"] = "client-1"
+	if _, err := verifyManagedOIDCToken(t.Context(), provider, signTestOIDCToken(t, privateKey, matchingClaims), "nonce-1"); err != nil {
+		t.Fatalf("expected matching optional azp to pass, got %v", err)
+	}
+	if _, err := verifyManagedOIDCToken(t.Context(), provider, signTestOIDCToken(t, privateKey, cloneClaims(base)), "nonce-1"); err != nil {
+		t.Fatalf("expected absent optional azp to pass for one audience, got %v", err)
 	}
 }
 

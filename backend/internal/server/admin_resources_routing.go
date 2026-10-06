@@ -109,6 +109,10 @@ func (s *Server) serveAdminResourceCollectionPost(w http.ResponseWriter, r *http
 		writeError(w, r, err)
 		return
 	}
+	if err := s.validateIdentityProviderMutation(kind, "", req); err != nil {
+		writeError(w, r, err)
+		return
+	}
 	if kind == "settings" && req.ID == gatewaySettingsID {
 		s.syntheticDNSSetting.Lock()
 		defer s.syntheticDNSSetting.Unlock()
@@ -182,6 +186,10 @@ func (s *Server) serveAdminResourcePatch(w http.ResponseWriter, r *http.Request,
 		writeError(w, r, err)
 		return
 	}
+	if err := s.validateIdentityProviderMutation(kind, resourceID, req); err != nil {
+		writeError(w, r, err)
+		return
+	}
 	if kind == "settings" && resourceID == gatewaySettingsID {
 		req.ID = resourceID
 		if err := validateProviderSyntheticDNSSettings(req); err != nil {
@@ -236,6 +244,12 @@ func (s *Server) serveAdminResourceDelete(w http.ResponseWriter, r *http.Request
 		s.recordAdminAudit(r, user, "delete", kind, resourceID, "", nil)
 		w.WriteHeader(http.StatusNoContent)
 		return
+	}
+	if normalizeAdminRole(user.Role) == "team_leader" && (kind == "quota-policies" || kind == "project-members") {
+		if err := s.validateScopedResourceMutation(user, kind, resourceID, AdminResource{}); err != nil {
+			writeError(w, r, err)
+			return
+		}
 	}
 	if err := s.store.DeleteResource(kind, resourceID); err != nil {
 		writeError(w, r, err)

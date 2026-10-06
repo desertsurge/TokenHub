@@ -55,8 +55,12 @@ export function IdentityProviderEditModal({
     (template.key !== "wecom" || values.agent_id?.trim()),
   );
   const endpointsComplete = Boolean(values.authorize_url?.trim() && values.token_url?.trim() && values.userinfo_url?.trim());
-  const canFinish = connectionComplete && endpointsComplete;
-  const advancedRequired = !endpointsComplete;
+  const managedOIDCKeySourceComplete = values.gateway_managed !== "true" || values.status === "disabled" || values.status === "draft" || values.status === "archived" || Boolean(
+    values.jwks_url?.trim() || values.discovery_url?.trim(),
+  );
+  const canFinish = connectionComplete && endpointsComplete && managedOIDCKeySourceComplete;
+  const finishBlocked = creating ? wizardStep >= 2 && !canFinish : !managedOIDCKeySourceComplete;
+  const advancedRequired = !endpointsComplete || !managedOIDCKeySourceComplete;
   const wizardSteps = [
     { title: "选择身份源", icon: Boxes },
     { title: "连接方式", icon: KeyRound },
@@ -71,7 +75,7 @@ export function IdentityProviderEditModal({
       setWizardStep((current) => current + 1);
       return;
     }
-    if (creating && !canFinish) return;
+    if ((creating && !canFinish) || !managedOIDCKeySourceComplete) return;
     onSave(values);
   }
 
@@ -213,6 +217,8 @@ export function IdentityProviderEditModal({
         {renderField("authorize_url", { required: creating })}
         {renderField("token_url", { required: creating })}
         {renderField("userinfo_url", { required: creating })}
+        {renderField("jwks_url")}
+        {renderField("discovery_url")}
         {renderField("userdetail_url")}
         {renderField("scopes")}
         {renderField("username_claim")}
@@ -314,8 +320,8 @@ export function IdentityProviderEditModal({
           ) : null}
           <button
             className="button"
-            disabled={loading || (creating && wizardStep === 0 && !templateConfirmed) || (creating && wizardStep >= 2 && !canFinish)}
-            title={creating && wizardStep >= 2 && !canFinish ? tx("请先完成连接信息和高级设置中的必填端点") : undefined}
+            disabled={loading || (creating && wizardStep === 0 && !templateConfirmed) || finishBlocked}
+            title={finishBlocked ? tx("请先完成连接信息和高级设置中的必填端点") : undefined}
             type="submit"
           >
             {loading

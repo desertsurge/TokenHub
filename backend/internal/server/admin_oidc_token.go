@@ -115,7 +115,7 @@ func managedOIDCJWKSURL(ctx context.Context, provider AdminResource) (string, er
 	if err != nil {
 		return "", err
 	}
-	response, err := (&http.Client{Timeout: 10 * time.Second}).Do(request)
+	response, err := oauthBackchannelHTTPClient(10 * time.Second).Do(request)
 	if err != nil {
 		return "", err
 	}
@@ -142,7 +142,7 @@ func fetchOIDCJWKS(ctx context.Context, jwksURL string) ([]oidcJSONWebKey, error
 		return nil, err
 	}
 	request.Header.Set("accept", "application/json")
-	response, err := (&http.Client{Timeout: 10 * time.Second}).Do(request)
+	response, err := oauthBackchannelHTTPClient(10 * time.Second).Do(request)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +290,9 @@ func validateOIDCClaims(claims map[string]any, issuer string, clientID string, e
 	if !oidcAudienceContains(claims["aud"], clientID) {
 		return NewHTTPError(http.StatusForbidden, "oidc_audience_mismatch", "Managed OIDC audience does not match the configured client")
 	}
-	if oidcAudienceIsMultiple(claims["aud"]) && strings.TrimSpace(firstOAuthClaim(claims, "azp")) != strings.TrimSpace(clientID) {
+	authorizedParty := strings.TrimSpace(firstOAuthClaim(claims, "azp"))
+	if (oidcAudienceIsMultiple(claims["aud"]) && authorizedParty == "") ||
+		(authorizedParty != "" && authorizedParty != strings.TrimSpace(clientID)) {
 		return NewHTTPError(http.StatusForbidden, "oidc_authorized_party_mismatch", "Managed OIDC authorized party does not match the configured client")
 	}
 	if strings.TrimSpace(expectedNonce) == "" || firstOAuthClaim(claims, "nonce") != strings.TrimSpace(expectedNonce) {

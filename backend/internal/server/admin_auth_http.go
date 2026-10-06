@@ -375,6 +375,7 @@ func validGatewayManagedProvider(provider AdminResource) bool {
 	keyURL := strings.TrimSpace(stringField(provider.Fields, "jwks_url"))
 	discoveryURL := strings.TrimSpace(stringField(provider.Fields, "discovery_url"))
 	if !strings.EqualFold(stringField(provider.Fields, "provider_type"), "oidc") ||
+		strings.TrimSpace(stringField(provider.Fields, "client_id")) == "" ||
 		strings.TrimSpace(stringField(provider.Fields, "gateway_principal_claim")) == "" ||
 		strings.TrimSpace(stringField(provider.Fields, "gateway_tenant_claim")) == "" ||
 		!validGatewayManagedOIDCURL(stringField(provider.Fields, "issuer_url")) ||
@@ -726,7 +727,7 @@ func requestOAuthToken(ctx context.Context, tokenURL string, form url.Values, ba
 	if basicClientID != "" || basicSecret != "" {
 		req.SetBasicAuth(basicClientID, basicSecret)
 	}
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := oauthBackchannelHTTPClient(15 * time.Second).Do(req)
 	if err != nil {
 		return oauthTokenResponse{}, "", err
 	}
@@ -760,7 +761,7 @@ func (s *Server) fetchOAuthUserInfo(ctx context.Context, provider AdminResource,
 	}
 	req.Header.Set("accept", "application/json")
 	req.Header.Set("authorization", "Bearer "+accessToken)
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := oauthBackchannelHTTPClient(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -774,6 +775,15 @@ func (s *Server) fetchOAuthUserInfo(ctx context.Context, provider AdminResource,
 		return nil, err
 	}
 	return claims, nil
+}
+
+func oauthBackchannelHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 func (s *Server) upsertOAuthAdminUser(provider AdminResource, claims map[string]any) (AdminUser, error) {

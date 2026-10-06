@@ -474,6 +474,23 @@ func TestTeamLeaderProjectManagementIsTeamScoped(t *testing.T) {
 	}
 	teamProject := store.CreateProject(Project{Name: "Existing Team Project", TeamID: leader.TeamID})
 	otherProject := store.CreateProject(Project{Name: "Other Team Project", TeamID: "team_other"})
+	otherMember, err := store.CreateAdminUser(AdminUser{
+		Username: "other-project-member",
+		Name:     "Other Project Member",
+		Email:    "other-project-member@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_other",
+		Status:   StatusActive,
+	}, "member123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherMembership := store.CreateResource("project-members", AdminResource{
+		ID:     "member_other_project",
+		Name:   "Other Project Member",
+		Status: StatusActive,
+		Fields: map[string]any{"project_id": otherProject.ID, "user_id": otherMember.ID, "role": "developer"},
+	})
 	teamQuota := store.CreateResource("quota-policies", AdminResource{
 		ID:     "quota_team_project",
 		Name:   "Team Project Quota",
@@ -558,6 +575,16 @@ func TestTeamLeaderProjectManagementIsTeamScoped(t *testing.T) {
 	if forbidden.Code != http.StatusForbidden {
 		t.Fatalf("team leader should not update another team project, got %d: %s", forbidden.Code, forbidden.Body)
 	}
+	forbiddenMembershipDelete := doJSON(t, app, http.MethodDelete, "/api/admin/resources/project-members/"+otherMembership.ID, nil, payload.Token)
+	if forbiddenMembershipDelete.Code != http.StatusForbidden || !strings.Contains(forbiddenMembershipDelete.Body, "project_member_forbidden") {
+		t.Fatalf("team leader should not delete another team's project member, got %d: %s", forbiddenMembershipDelete.Code, forbiddenMembershipDelete.Body)
+	}
+	for _, item := range store.ListResources("project-members") {
+		if item.ID == otherMembership.ID {
+			return
+		}
+	}
+	t.Fatal("other team's project member was deleted despite authorization failure")
 }
 
 func TestProjectMembersAssignMultipleProjectsAndKeyIssueScope(t *testing.T) {

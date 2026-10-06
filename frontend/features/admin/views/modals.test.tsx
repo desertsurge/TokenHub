@@ -120,9 +120,66 @@ describe("IdentityProviderEditModal", () => {
     };
     const { container, rerender } = render(<IdentityProviderEditModal {...props} values={{ gateway_managed: "false" }} />);
     expect(container.querySelector('[data-field-key="gateway_principal_claim"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-field-key="jwks_url"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-field-key="discovery_url"]')).not.toBeInTheDocument();
     rerender(<IdentityProviderEditModal {...props} values={{ gateway_managed: "true" }} />);
     expect(container.querySelector('[data-field-key="gateway_principal_claim"] input')).toBeRequired();
     expect(container.querySelector('[data-field-key="gateway_tenant_claim"] input')).toBeRequired();
+    expect(container.querySelector('[data-field-key="jwks_url"] input')).toBeInTheDocument();
+    expect(container.querySelector('[data-field-key="discovery_url"] input')).toBeInTheDocument();
+  });
+
+  it("requires a key source for active managed identities", () => {
+    const data = emptyData();
+    const props = {
+      currentUser: null,
+      data,
+      loading: false,
+      onClose: vi.fn(),
+      onSave: vi.fn(),
+      setValues: vi.fn(),
+      state: { config: identityProviderConfig(), item: { id: "idp_managed", kind: "identity-providers", name: "Managed SSO", status: "active" } },
+    };
+    const values = {
+      gateway_managed: "true",
+      status: "active",
+      name: "Managed SSO",
+      provider_type: "oidc",
+      client_id: "managed-client",
+      authorize_url: "https://id.example.test/authorize",
+      token_url: "https://id.example.test/token",
+      userinfo_url: "https://id.example.test/userinfo",
+    };
+    const { rerender } = render(<IdentityProviderEditModal {...props} values={values} />);
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+
+    rerender(<IdentityProviderEditModal {...props} values={{ ...values, discovery_url: "https://id.example.test/.well-known/openid-configuration" }} />);
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+
+    rerender(<IdentityProviderEditModal {...props} values={{ ...values, status: "disabled" }} />);
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+  });
+
+  it("allows managed identity creation to reach the key source step", async () => {
+    const user = userEvent.setup();
+    render(
+      <IdentityProviderEditModal
+        currentUser={null}
+        data={emptyData()}
+        loading={false}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        setValues={vi.fn()}
+        state={{ config: identityProviderConfig(), item: undefined }}
+        values={{ gateway_managed: "true", status: "active" }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /通用 OIDC/ }));
+    const next = screen.getByRole("button", { name: "下一步" });
+    expect(next).toBeEnabled();
+    await user.click(next);
+    expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled();
   });
 
   it("renders identity provider templates contributed by plugins", () => {
