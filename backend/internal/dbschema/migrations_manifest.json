@@ -52,21 +52,21 @@
     },
     {
       "version": 7,
-      "name": "add-gateway-control-plane-schema-sqlite",
+      "name": "add-gateway-integration-schema",
       "phase": "expand",
-      "dialect": "sqlite",
-      "checksum": "tokenhub-schema-gateway-control-plane-sqlite-v1",
+      "dialect": "",
+      "checksum": "tokenhub-schema-gateway-integration-v1",
       "lock_timeout_seconds": 30,
-      "statement_budget": 80
+      "statement_budget": 100
     },
     {
       "version": 8,
-      "name": "add-gateway-control-plane-schema-postgres",
+      "name": "complete-gateway-integration-schema",
       "phase": "expand",
-      "dialect": "postgres",
-      "checksum": "tokenhub-schema-gateway-control-plane-postgres-v1",
+      "dialect": "",
+      "checksum": "tokenhub-schema-gateway-integration-storage-v1",
       "lock_timeout_seconds": 30,
-      "statement_budget": 50
+      "statement_budget": 10
     },
     {
       "version": 9,
@@ -121,6 +121,24 @@
       "checksum": "tokenhub-schema-quota-bucket-tenant-scope-v1",
       "lock_timeout_seconds": 30,
       "statement_budget": 24
+    },
+    {
+      "version": 15,
+      "name": "repair-gateway-control-plane-schema",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-gateway-control-plane-repair-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 80
+    },
+    {
+      "version": 16,
+      "name": "add-gateway-principal-email",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-gateway-principal-email-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 3
     }
   ]
 }

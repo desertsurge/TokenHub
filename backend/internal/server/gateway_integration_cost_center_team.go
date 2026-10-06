@@ -23,7 +23,7 @@ func applyGatewayServingTeamCostCenter(tx *gorm.DB, organization GatewayOrganiza
 	}
 
 	var costCenter GatewayCostCenter
-	if err := tx.First(&costCenter, "id = ?", binding.CostCenterID).Error; err != nil {
+	if err := tx.Unscoped().First(&costCenter, "id = ?", binding.CostCenterID).Error; err != nil {
 		return err
 	}
 	if costCenter.Status != StatusActive || costCenter.DeletedAt != nil {
@@ -50,7 +50,7 @@ func syncGatewayServingTeamsForCostCenter(tx *gorm.DB, costCenter GatewayCostCen
 	}
 	for organizationID := range organizationIDs {
 		var organization GatewayOrganization
-		if err := tx.First(&organization, "id = ?", organizationID).Error; err != nil {
+		if err := tx.Unscoped().First(&organization, "id = ?", organizationID).Error; err != nil {
 			return err
 		}
 		if _, err := syncGatewayServingOrganizationTeam(tx, organization, now); err != nil {
@@ -65,7 +65,7 @@ func syncGatewayServingTeamForOrganizationID(tx *gorm.DB, organizationID string,
 		return nil
 	}
 	var organization GatewayOrganization
-	if err := tx.First(&organization, "id = ?", organizationID).Error; err != nil {
+	if err := tx.Unscoped().First(&organization, "id = ?", organizationID).Error; err != nil {
 		return err
 	}
 	_, err := syncGatewayServingOrganizationTeam(tx, organization, now)

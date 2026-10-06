@@ -29,13 +29,7 @@ func TestSQLiteGatewayExpandMigrationUpgradesV6Schema(t *testing.T) {
 		}
 	}
 
-	var migration dbschema.Migration
-	for _, candidate := range SchemaMigrationRegistry() {
-		if candidate.Name == "add-gateway-control-plane-schema-sqlite" {
-			migration = candidate
-			break
-		}
-	}
+	migration := gatewayControlPlaneRepairMigration()
 	if migration.Go == nil {
 		t.Fatal("SQLite Gateway schema migration is not registered as a Go migration")
 	}
@@ -90,17 +84,72 @@ func TestSQLiteGatewayExpandMigrationUpgradesV6Schema(t *testing.T) {
 	}
 }
 
-func TestGatewayExpandMigrationsCoverBothDialects(t *testing.T) {
-	seen := map[dbschema.Dialect]bool{}
-	for _, migration := range SchemaMigrationRegistry() {
-		if strings.HasPrefix(migration.Name, "add-gateway-control-plane-schema-") {
-			seen[migration.Dialect] = true
+func TestGatewaySchemaHistoryRemainsForwardCompatible(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	baseline, err := dbschema.SQLiteBaselineStatements()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := SchemaMigrationRegistry()
+	historical := make([]dbschema.Migration, 0, len(registry)-1)
+	for _, migration := range registry {
+		if migration.Version < 16 {
+			historical = append(historical, migration)
 		}
 	}
-	for _, dialect := range []dbschema.Dialect{dbschema.DialectSQLite, dbschema.DialectPostgres} {
-		if !seen[dialect] {
-			t.Fatalf("missing Gateway schema migration for %s", dialect)
+	historicalRunner, err := dbschema.NewRunner(db, dbschema.DialectSQLite, historical, dbschema.WithFreshBaseline(baseline))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := historicalRunner.Adopt(context.Background(), nil); err != nil {
+		t.Fatalf("apply historical registry: %v", err)
+	}
+	for version, checksum := range map[int64]string{
+		7: "tokenhub-schema-gateway-integration-v1",
+		8: "tokenhub-schema-gateway-integration-storage-v1",
+	} {
+		var recorded string
+		if err := db.QueryRow("SELECT checksum FROM schema_migrations WHERE version = ?", version).Scan(&recorded); err != nil {
+			t.Fatal(err)
 		}
+		if recorded != checksum {
+			t.Fatalf("historical migration %d checksum = %q, want %q", version, recorded, checksum)
+		}
+	}
+	if _, err := db.Exec("DROP INDEX IF EXISTS idx_usage_records_project_created"); err != nil {
+		t.Fatal(err)
+	}
+
+	currentRunner, err := dbschema.NewRunner(db, dbschema.DialectSQLite, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := currentRunner.Migrate(context.Background())
+	if err != nil {
+		t.Fatalf("upgrade historical ledger: %v", err)
+	}
+	if len(result.Applied) != 1 || result.Applied[0].Version != 16 {
+		t.Fatalf("applied migrations = %+v, want only version 16", result.Applied)
+	}
+	var indexCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_usage_records_project_created'").Scan(&indexCount); err != nil {
+		t.Fatal(err)
+	}
+	if indexCount != 1 {
+		t.Fatalf("Gateway schema repair index count = %d, want 1", indexCount)
+	}
+	var emailColumnCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('gateway_principals') WHERE name = 'email'").Scan(&emailColumnCount); err != nil {
+		t.Fatal(err)
+	}
+	if emailColumnCount != 1 {
+		t.Fatalf("Gateway principal email column count = %d, want 1", emailColumnCount)
 	}
 }
 

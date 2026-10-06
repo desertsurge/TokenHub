@@ -63,6 +63,11 @@ func gatewayManagedUsername(principalID string) string {
 	return "gateway_" + hex.EncodeToString(digest[:16])
 }
 
+func gatewayManagedSyntheticEmail(principalID string) string {
+	digest := sha256.Sum256([]byte("email:" + principalID))
+	return "gateway_" + hex.EncodeToString(digest[:16]) + "@users.tokenhub.invalid"
+}
+
 func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event GatewayIntegrationEvent) error {
 	principalID := principal.ExternalPrincipalID
 	email := strings.TrimSpace(payloadString(event.Payload, "email"))
@@ -73,7 +78,7 @@ func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event Gatew
 	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		if email == "" {
-			return nil
+			email = gatewayManagedSyntheticEmail(principalID)
 		}
 		var conflict int64
 		if err := tx.Model(&AdminUser{}).Where("lower(email) = lower(?) OR username = ?", email, gatewayManagedUsername(principalID)).Count(&conflict).Error; err != nil {
@@ -97,12 +102,16 @@ func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event Gatew
 			return err
 		}
 	}
+	profileIsCurrent, err := gatewayManagedUserProfileIsCurrent(tx, principalID, event.OccurredAt)
+	if err != nil {
+		return err
+	}
 
 	var user AdminUser
 	if err := tx.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
 		return NewHTTPError(http.StatusConflict, "gateway_user_missing", "Managed gateway user is missing")
 	}
-	if email != "" && !strings.EqualFold(user.Email, email) {
+	if profileIsCurrent && email != "" && !strings.EqualFold(user.Email, email) {
 		var conflict int64
 		if err := tx.Model(&AdminUser{}).Where("id <> ? AND lower(email) = lower(?)", user.ID, email).Count(&conflict).Error; err != nil {
 			return err
@@ -112,7 +121,7 @@ func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event Gatew
 		}
 		user.Email = email
 	}
-	if principal.DisplayName != "" {
+	if profileIsCurrent && principal.DisplayName != "" {
 		user.Name = principal.DisplayName
 	}
 	active, err := gatewayManagedUserActive(tx, principalID)
@@ -127,6 +136,44 @@ func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event Gatew
 	if err := tx.Save(&user).Error; err != nil {
 		return err
 	}
+	if err := syncGatewayServingProjectsForPrincipal(tx, principal); err != nil {
+		return err
+	}
+	return refreshGatewayManagedUserTeams(tx, principalID)
+}
+
+func refreshGatewayManagedPrincipalState(tx *gorm.DB, principal GatewayPrincipal) error {
+	var managed GatewayManagedUser
+	err := tx.First(&managed, "external_principal_id = ?", principal.ExternalPrincipalID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return syncGatewayServingProjectsForPrincipal(tx, principal)
+	}
+	if err != nil {
+		return err
+	}
+	var user AdminUser
+	if err := tx.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
+		return NewHTTPError(http.StatusConflict, "gateway_user_missing", "Managed gateway user is missing")
+	}
+	active, err := gatewayManagedUserActive(tx, principal.ExternalPrincipalID)
+	if err != nil {
+		return err
+	}
+	user.Status = StatusDisabled
+	if active {
+		user.Status = StatusActive
+	}
+	user.UpdatedAt = time.Now().UTC()
+	if err := tx.Save(&user).Error; err != nil {
+		return err
+	}
+	if err := syncGatewayServingProjectsForPrincipal(tx, principal); err != nil {
+		return err
+	}
+	return refreshGatewayManagedUserTeams(tx, principal.ExternalPrincipalID)
+}
+
+func syncGatewayServingProjectsForPrincipal(tx *gorm.DB, principal GatewayPrincipal) error {
 	var projects []GatewayProject
 	if err := tx.Where("owner_principal_id = ?", principal.ID).Find(&projects).Error; err != nil {
 		return err
@@ -137,7 +184,15 @@ func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event Gatew
 			return err
 		}
 	}
-	return refreshGatewayManagedUserTeams(tx, principalID)
+	return nil
+}
+
+func gatewayManagedUserProfileIsCurrent(tx *gorm.DB, principalID string, occurredAt time.Time) (bool, error) {
+	var newerProfiles int64
+	err := tx.Model(&GatewayPrincipal{}).
+		Where("external_principal_id = ? AND source_occurred_at > ?", principalID, occurredAt).
+		Count(&newerProfiles).Error
+	return newerProfiles == 0, err
 }
 
 func gatewayManagedUserActive(tx *gorm.DB, principalID string) (bool, error) {
@@ -194,6 +249,13 @@ func (s *GormStore) ResolveGatewayManagedOIDCUser(principalID, tenantExternalID,
 	defer s.mu.Unlock()
 	var user AdminUser
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := s.lockScopeForUpdate(tx, "gateway_managed_user", principalID); err != nil {
+			return err
+		}
+		identityDigest := sha256.Sum256([]byte(issuer + "\x00" + subject))
+		if err := s.lockScopeForUpdate(tx, "gateway_oidc_identity", hex.EncodeToString(identityDigest[:])); err != nil {
+			return err
+		}
 		var managed GatewayManagedUser
 		if err := tx.First(&managed, "external_principal_id = ?", principalID).Error; err != nil {
 			return NewHTTPError(http.StatusForbidden, "gateway_user_not_synced", "Gateway user has not been synchronized")

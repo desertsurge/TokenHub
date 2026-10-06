@@ -146,8 +146,9 @@ func (s *GormStore) ListGatewayRequestLogs(filter GatewayRequestLogFilter) (Gate
 
 	base := s.db.Table("request_logs AS rl").
 		Joins("JOIN api_keys AS ak ON ak.id = rl.api_key_id AND ak.managed_by = ? AND ak.tenant_external_id = ?", gatewayModelAccessKeyManagedBy, tenantID).
-		Joins("LEFT JOIN gateway_projects AS gp ON gp.id = rl.project_id").
-		Joins("LEFT JOIN gateway_organizations AS go ON go.id = gp.organization_id").
+		Joins("LEFT JOIN gateway_tenants AS gt ON gt.external_tenant_id = ak.tenant_external_id").
+		Joins("LEFT JOIN gateway_projects AS gp ON gp.id = rl.project_id AND gp.tenant_id = gt.id").
+		Joins("LEFT JOIN gateway_organizations AS go ON go.id = gp.organization_id AND go.tenant_id = gp.tenant_id").
 		Joins("LEFT JOIN gateway_principals AS gpr ON ak.principal_type = ? AND gpr.tenant_id = gp.tenant_id AND gpr.external_principal_id = ak.principal_external_id", "user").
 		Joins("LEFT JOIN gateway_workloads AS gw ON ak.principal_type <> ? AND gw.tenant_id = gp.tenant_id AND gw.external_workload_id = ak.principal_external_id", "user")
 

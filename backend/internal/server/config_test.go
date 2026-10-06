@@ -232,10 +232,11 @@ func TestProductionIntegrationRequiresTenantContextSecret(t *testing.T) {
 func TestProductionConfigRejectsReusedAdminAndIntegrationTokens(t *testing.T) {
 	token := strings.Repeat("x", 32)
 	config := Config{
-		Environment:      "production",
-		AdminToken:       token,
-		IntegrationToken: token,
-		SecretKey:        strings.Repeat("s", 32),
+		Environment:              "production",
+		AdminToken:               token,
+		IntegrationToken:         token,
+		IntegrationContextSecret: strings.Repeat("c", 32),
+		SecretKey:                strings.Repeat("s", 32),
 	}
 	err := config.ValidateForStartup()
 	if err == nil || !strings.Contains(err.Error(), "TOKENHUB_ADMIN_TOKEN and TOKENHUB_INTEGRATION_TOKEN must be different") {

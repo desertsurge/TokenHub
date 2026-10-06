@@ -1,22 +1,30 @@
 package server
 
 import (
-	"encoding/hex"
 	"errors"
 	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
 )
 
-func isGatewayManagedTeamID(teamID string) bool {
-	if !strings.HasPrefix(teamID, "gwt_") || len(teamID) != 28 {
-		return false
+func gatewayManagedTeamIDs(tx *gorm.DB, teamIDs []string) (map[string]bool, error) {
+	managedIDs := map[string]bool{}
+	teamIDs = normalizedUniqueStrings(teamIDs)
+	if len(teamIDs) == 0 {
+		return managedIDs, nil
 	}
-	_, err := hex.DecodeString(teamID[4:])
-	return err == nil
+	var teams []AdminResource
+	if err := tx.Where("kind = ? AND id IN ?", "teams", teamIDs).Find(&teams).Error; err != nil {
+		return nil, err
+	}
+	for _, team := range teams {
+		if isGatewayManagedTeam(team) {
+			managedIDs[team.ID] = true
+		}
+	}
+	return managedIDs, nil
 }
 
 func refreshGatewayManagedUserTeams(tx *gorm.DB, externalPrincipalID string) error {
@@ -40,7 +48,7 @@ func refreshGatewayManagedUserTeams(tx *gorm.DB, externalPrincipalID string) err
 	now := time.Now().UTC()
 	for _, principal := range principals {
 		var tenant GatewayTenant
-		if err := tx.First(&tenant, "id = ?", principal.TenantID).Error; err != nil {
+		if err := tx.Unscoped().First(&tenant, "id = ?", principal.TenantID).Error; err != nil {
 			return err
 		}
 		if tenant.Status != StatusActive || tenant.DeletedAt != nil {
@@ -52,7 +60,7 @@ func refreshGatewayManagedUserTeams(tx *gorm.DB, externalPrincipalID string) err
 		}
 		for _, binding := range bindings {
 			var organization GatewayOrganization
-			if err := tx.First(&organization, "id = ?", binding.OrganizationID).Error; err != nil {
+			if err := tx.Unscoped().First(&organization, "id = ?", binding.OrganizationID).Error; err != nil {
 				return err
 			}
 			if organization.Status != StatusActive || organization.DeletedAt != nil {
@@ -73,14 +81,18 @@ func refreshGatewayManagedUserTeams(tx *gorm.DB, externalPrincipalID string) err
 		managedTeams = append(managedTeams, teamID)
 	}
 	sort.Strings(managedTeams)
+	assignedManagedIDs, err := gatewayManagedTeamIDs(tx, append(slices.Clone(user.TeamIDs), user.TeamID))
+	if err != nil {
+		return err
+	}
 	localTeams := make([]string, 0, len(user.TeamIDs))
 	for _, teamID := range user.TeamIDs {
-		if !isGatewayManagedTeamID(teamID) {
+		if !assignedManagedIDs[teamID] {
 			localTeams = append(localTeams, teamID)
 		}
 	}
 	primary := user.TeamID
-	if isGatewayManagedTeamID(primary) {
+	if assignedManagedIDs[primary] {
 		primary = ""
 	}
 	if primary == "" {
@@ -101,21 +113,17 @@ func refreshGatewayManagedUserTeams(tx *gorm.DB, externalPrincipalID string) err
 }
 
 func refreshGatewayOrganizationTeamUsers(tx *gorm.DB, organizationID string) error {
-	var bindings []GatewayPrincipalOrganizationBinding
-	if err := tx.Where("organization_id = ?", organizationID).Find(&bindings).Error; err != nil {
+	var externalPrincipalIDs []string
+	if err := tx.Model(&GatewayPrincipalOrganizationBinding{}).
+		Select("DISTINCT gateway_principals.external_principal_id").
+		Joins("JOIN gateway_principals ON gateway_principals.id = gateway_principal_organization_bindings.principal_id").
+		Where("gateway_principal_organization_bindings.organization_id = ?", organizationID).
+		Where("gateway_principals.external_principal_id <> ''").
+		Pluck("gateway_principals.external_principal_id", &externalPrincipalIDs).Error; err != nil {
 		return err
 	}
-	seen := map[string]bool{}
-	for _, binding := range bindings {
-		var principal GatewayPrincipal
-		if err := tx.First(&principal, "id = ?", binding.PrincipalID).Error; err != nil {
-			return err
-		}
-		if seen[principal.ExternalPrincipalID] {
-			continue
-		}
-		seen[principal.ExternalPrincipalID] = true
-		if err := refreshGatewayManagedUserTeams(tx, principal.ExternalPrincipalID); err != nil {
+	for _, externalPrincipalID := range externalPrincipalIDs {
+		if err := refreshGatewayManagedUserTeams(tx, externalPrincipalID); err != nil {
 			return err
 		}
 	}

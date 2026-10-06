@@ -8,6 +8,29 @@ import (
 	"tokenhub/backend/internal/dbschema"
 )
 
+func gatewayControlPlaneRepairMigration() dbschema.Migration {
+	return dbschema.Migration{
+		Version:          15,
+		Name:             "repair-gateway-control-plane-schema",
+		Go:               repairGatewayControlPlaneSchema,
+		ChecksumOverride: "tokenhub-schema-gateway-control-plane-repair-v1",
+		StatementBudget:  80,
+	}
+}
+
+func repairGatewayControlPlaneSchema(ctx context.Context, db dbschema.MigrationExecer) error {
+	var schema string
+	if err := db.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err == nil {
+		for _, statement := range gatewaySchemaMigrationPostgresStatements {
+			if _, err := db.ExecContext(ctx, statement); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return gatewaySchemaMigrationSQLite(ctx, db)
+}
+
 func gatewaySchemaMigrationSQLite(ctx context.Context, db dbschema.MigrationExecer) error {
 	tableStatements := []string{
 		"CREATE TABLE IF NOT EXISTS `gateway_tenants` (`id` text,`external_tenant_id` text,`name` text,`status` text,`version` integer,`synced_at` datetime,`deleted_at` datetime,`created_at` datetime,`updated_at` datetime,PRIMARY KEY (`id`))",

@@ -3,6 +3,7 @@ package dbcli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -100,7 +101,8 @@ func TestCommandsOnAdoptedDatabase(t *testing.T) {
 	}
 
 	code, output := runCLI(t, "status")
-	if code != 0 || !strings.Contains(output, "baseline recorded:   true") || !strings.Contains(output, "current version:     7") {
+	wantVersion := fmt.Sprintf("current version:     %d", server.CurrentCompatibilityManifest().TargetVersion)
+	if code != 0 || !strings.Contains(output, "baseline recorded:   true") || !strings.Contains(output, wantVersion) {
 		t.Fatalf("status on adopted database: code=%d output=%q", code, output)
 	}
 	code, output = runCLI(t, "verify")

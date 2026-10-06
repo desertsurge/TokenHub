@@ -39,6 +39,15 @@ func TestGatewayOrganizationCostCenterUpdatesServingTeam(t *testing.T) {
 	}
 	assertTeamCostCenter("CC-TEAM")
 
+	delete(initialTeam.Fields, "cost_center")
+	if err := store.db.Save(&initialTeam).Error; err != nil {
+		t.Fatal(err)
+	}
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_team_cc_repair", "cost_center.updated", "cost_center", "cc_team", "tenant_team_cc", 1, map[string]interface{}{
+		"externalId": "cc_team", "code": "CC-TEAM", "status": StatusActive,
+	}))
+	assertTeamCostCenter("CC-TEAM")
+
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_team_cc_rename", "cost_center.updated", "cost_center", "cc_team", "tenant_team_cc", 2, map[string]interface{}{
 		"externalId": "cc_team", "code": "CC-TEAM-2", "status": StatusActive,
 	}))
@@ -55,6 +64,19 @@ func TestGatewayOrganizationCostCenterUpdatesServingTeam(t *testing.T) {
 	assertTeamCostCenter("CC-TEAM-2")
 
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_team_cc_remove", "organization_cost_center.removed", "organization_cost_center", "binding_team_cc", "tenant_team_cc", 2, map[string]interface{}{
+		"externalId": "binding_team_cc", "organizationExternalId": "org_team_cc", "costCenterExternalId": "cc_team", "status": "removed",
+	}))
+	assertTeamCostCenter("")
+
+	var driftedTeam AdminResource
+	if err := store.db.First(&driftedTeam, "kind = ? AND id = ?", "teams", teamID).Error; err != nil {
+		t.Fatal(err)
+	}
+	driftedTeam.Fields["cost_center"] = "STALE"
+	if err := store.db.Save(&driftedTeam).Error; err != nil {
+		t.Fatal(err)
+	}
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_team_cc_remove_repair", "organization_cost_center.removed", "organization_cost_center", "binding_team_cc", "tenant_team_cc", 2, map[string]interface{}{
 		"externalId": "binding_team_cc", "organizationExternalId": "org_team_cc", "costCenterExternalId": "cc_team", "status": "removed",
 	}))
 	assertTeamCostCenter("")

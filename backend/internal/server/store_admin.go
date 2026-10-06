@@ -34,6 +34,16 @@ func (s *GormStore) CreateRoutingPolicy(resource AdminResource) (AdminResource, 
 }
 
 func (s *GormStore) createResourceLocked(kind string, resource AdminResource, upsert bool) (AdminResource, error) {
+	if kind == "teams" && strings.TrimSpace(resource.ID) != "" {
+		var existing AdminResource
+		err := s.db.First(&existing, "kind = ? AND id = ?", kind, resource.ID).Error
+		if err == nil && isGatewayManagedTeam(existing) {
+			return AdminResource{}, gatewayManagedTeamReadOnlyError()
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return AdminResource{}, err
+		}
+	}
 	now := time.Now().UTC()
 	if resource.ID == "" {
 		resource.ID = NewID(resourcePrefix(kind))
@@ -87,6 +97,9 @@ func (s *GormStore) UpdateResource(kind string, id string, patch AdminResource) 
 	if err := s.db.First(&resource, "kind = ? AND id = ?", kind, id).Error; err != nil {
 		return AdminResource{}, notFound(err, "resource_not_found", "Resource not found")
 	}
+	if isGatewayManagedTeam(resource) {
+		return AdminResource{}, gatewayManagedTeamReadOnlyError()
+	}
 	if patch.Name != "" {
 		resource.Name = patch.Name
 	}
@@ -117,6 +130,9 @@ func (s *GormStore) DeleteResource(kind string, id string) error {
 	if err := s.db.First(&resource, "kind = ? AND id = ?", kind, id).Error; err != nil {
 		return notFound(err, "resource_not_found", "Resource not found")
 	}
+	if isGatewayManagedTeam(resource) {
+		return gatewayManagedTeamReadOnlyError()
+	}
 	return s.db.Delete(&resource).Error
 }
 
@@ -128,6 +144,9 @@ func (s *GormStore) DeleteTeam(id string) error {
 		team, err := lockAdminResourceForMutation(tx, "teams", id)
 		if err != nil {
 			return err
+		}
+		if isGatewayManagedTeam(team) {
+			return gatewayManagedTeamReadOnlyError()
 		}
 		var projectLinkCount int64
 		if err := tx.Model(&ProjectTeam{}).Where("team_id = ?", id).Count(&projectLinkCount).Error; err != nil {
@@ -151,6 +170,14 @@ func (s *GormStore) DeleteTeam(id string) error {
 		}
 		return tx.Delete(&team).Error
 	})
+}
+
+func isGatewayManagedTeam(resource AdminResource) bool {
+	return resource.Kind == "teams" && strings.EqualFold(strings.TrimSpace(stringField(resource.Fields, "managed_by")), "gateway_integration")
+}
+
+func gatewayManagedTeamReadOnlyError() error {
+	return NewHTTPError(http.StatusConflict, "integration_managed_team_read_only", "Integration-managed team is read-only")
 }
 
 func (s *GormStore) RunMonitor(id string) (MonitorRunResult, error) {

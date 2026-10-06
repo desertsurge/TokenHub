@@ -104,8 +104,9 @@ func managedGatewayProvider() AdminResource {
 	return AdminResource{ID: "managed-provider", Fields: map[string]any{
 		"gateway_managed": true, "provider_type": "oidc", "issuer_url": "https://idp.example.test",
 		"authorize_url": "https://login.example.test/authorize", "token_url": "https://api.example.test/oauth/token", "userinfo_url": "https://api.example.test/userinfo",
-		"jwks_url": "https://idp.example.test/.well-known/jwks.json",
-		"scopes":   "openid profile email", "gateway_principal_claim": "external_user_id", "gateway_tenant_claim": "organization_id",
+		"client_id": "managed-client",
+		"jwks_url":  "https://idp.example.test/.well-known/jwks.json",
+		"scopes":    "openid profile email", "gateway_principal_claim": "external_user_id", "gateway_tenant_claim": "organization_id",
 	}}
 }
 
@@ -229,6 +230,38 @@ func TestGatewayManagedUserIgnoresStaleEmailUpdate(t *testing.T) {
 	}
 }
 
+func TestGatewayManagedUserIgnoresOlderProfileFromAnotherTenant(t *testing.T) {
+	store := NewMemoryStore()
+	seedManagedGatewayUser(t, store, "profile_cross_tenant_stale", "initial@example.test")
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+
+	current := gatewayIntegrationEvent("evt_member_cross_tenant_current", "tenant_member.updated", "tenant_member", "member_profile_cross_tenant_stale", "tenant_managed", 2, map[string]interface{}{
+		"externalId": "member_profile_cross_tenant_stale", "principalExternalId": "profile_cross_tenant_stale", "name": "Current user", "email": "current@example.test", "status": "active",
+	})
+	current["occurredAt"] = "2026-07-25T08:00:00.000Z"
+	applyGatewayIntegrationEventForTest(t, app, current)
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_cross_tenant_stale", "tenant.created", "tenant", "tenant_cross_tenant_stale", "tenant_cross_tenant_stale", 1, map[string]interface{}{
+		"externalId": "tenant_cross_tenant_stale", "name": "Second tenant", "status": "active",
+	}))
+	older := gatewayIntegrationEvent("evt_member_cross_tenant_older", "tenant_member.added", "tenant_member", "member_cross_tenant_older", "tenant_cross_tenant_stale", 1, map[string]interface{}{
+		"externalId": "member_cross_tenant_older", "principalExternalId": "profile_cross_tenant_stale", "name": "Older user", "email": "older@example.test", "status": "active",
+	})
+	older["occurredAt"] = "2026-07-24T08:00:00.000Z"
+	applyGatewayIntegrationEventForTest(t, app, older)
+
+	var managed GatewayManagedUser
+	if err := store.db.First(&managed, "external_principal_id = ?", "profile_cross_tenant_stale").Error; err != nil {
+		t.Fatal(err)
+	}
+	var user AdminUser
+	if err := store.db.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if user.Email != "current@example.test" || user.Name != "Current user" {
+		t.Fatalf("older cross-tenant event changed managed user: %+v", user)
+	}
+}
+
 func TestGatewayManagedUserAcceptsSameVersionInitialEmail(t *testing.T) {
 	store := NewMemoryStore()
 	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
@@ -238,6 +271,17 @@ func TestGatewayManagedUserAcceptsSameVersionInitialEmail(t *testing.T) {
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_member_without_email", "tenant_member.added", "tenant_member", "member_enrichment", "tenant_enrichment", 1, map[string]interface{}{
 		"externalId": "member_enrichment", "principalExternalId": "profile_enrichment", "name": "Enriched user", "status": "active",
 	}))
+	var managed GatewayManagedUser
+	if err := store.db.First(&managed, "external_principal_id = ?", "profile_enrichment").Error; err != nil {
+		t.Fatal(err)
+	}
+	var user AdminUser
+	if err := store.db.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if user.Email != gatewayManagedSyntheticEmail("profile_enrichment") {
+		t.Fatalf("email-free projection did not create the expected synthetic user: %+v", user)
+	}
 
 	enriched := gatewayIntegrationEvent("evt_member_with_email", "tenant_member.updated", "tenant_member", "member_enrichment", "tenant_enrichment", 1, map[string]interface{}{
 		"externalId": "member_enrichment", "principalExternalId": "profile_enrichment", "name": "Enriched user", "email": "enriched@example.test", "status": "active",
@@ -247,15 +291,129 @@ func TestGatewayManagedUserAcceptsSameVersionInitialEmail(t *testing.T) {
 		t.Fatalf("expected same-version initial email enrichment, got %d: %s", response.Code, response.Body)
 	}
 
+	user = AdminUser{}
+	if err := store.db.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if user.Email != "enriched@example.test" || user.Name != "Enriched user" {
+		t.Fatalf("same-version enrichment did not create managed user: %+v", user)
+	}
+}
+
+func TestGatewayManagedUserIgnoresOlderSameVersionEmail(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_same_version", "tenant.created", "tenant", "tenant_same_version", "tenant_same_version", 1, map[string]interface{}{
+		"externalId": "tenant_same_version", "name": "Same-version tenant", "status": "active",
+	}))
+	current := gatewayIntegrationEvent("evt_member_same_version_current", "tenant_member.added", "tenant_member", "member_same_version", "tenant_same_version", 1, map[string]interface{}{
+		"externalId": "member_same_version", "principalExternalId": "profile_same_version", "name": "Current user", "email": "current@example.test", "status": "active",
+	})
+	current["occurredAt"] = "2026-07-25T08:00:00.000Z"
+	applyGatewayIntegrationEventForTest(t, app, current)
+
+	older := gatewayIntegrationEvent("evt_member_same_version_older", "tenant_member.updated", "tenant_member", "member_same_version", "tenant_same_version", 1, map[string]interface{}{
+		"externalId": "member_same_version", "principalExternalId": "profile_same_version", "name": "Older user", "email": "older@example.test", "status": "active",
+	})
+	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", older, "integration_token")
+	if response.Code != http.StatusOK || !jsonBodyHasField(response.Body, "outcome", "ignored_stale") {
+		t.Fatalf("expected older same-version event to be ignored, got %d: %s", response.Code, response.Body)
+	}
+
+	var principal GatewayPrincipal
+	if err := store.db.First(&principal, "external_principal_id = ?", "profile_same_version").Error; err != nil {
+		t.Fatal(err)
+	}
+	if principal.Email != "current@example.test" || principal.DisplayName != "Current user" {
+		t.Fatalf("older same-version event changed tenant principal: %+v", principal)
+	}
 	var managed GatewayManagedUser
-	if err := store.db.First(&managed, "external_principal_id = ?", "profile_enrichment").Error; err != nil {
+	if err := store.db.First(&managed, "external_principal_id = ?", "profile_same_version").Error; err != nil {
 		t.Fatal(err)
 	}
 	var user AdminUser
 	if err := store.db.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if user.Email != "enriched@example.test" || user.Name != "Enriched user" {
-		t.Fatalf("same-version enrichment did not create managed user: %+v", user)
+	if user.Email != "current@example.test" || user.Name != "Current user" {
+		t.Fatalf("older same-version event changed managed user: %+v", user)
+	}
+}
+
+func TestGatewayManagedUserKeepsLatestSameVersionEmailTimestamp(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_same_version_order", "tenant.created", "tenant", "tenant_same_version_order", "tenant_same_version_order", 1, map[string]interface{}{
+		"externalId": "tenant_same_version_order", "name": "Same-version ordering tenant", "status": "active",
+	}))
+
+	newer := gatewayIntegrationEvent("evt_member_same_version_newer", "tenant_member.added", "tenant_member", "member_same_version_order", "tenant_same_version_order", 1, map[string]interface{}{
+		"externalId": "member_same_version_order", "principalExternalId": "profile_same_version_order", "name": "Newest user", "email": "newest@example.test", "status": "active",
+	})
+	newer["occurredAt"] = "2026-07-25T10:00:00.000Z"
+	applyGatewayIntegrationEventForTest(t, app, newer)
+
+	middle := gatewayIntegrationEvent("evt_member_same_version_middle", "tenant_member.updated", "tenant_member", "member_same_version_order", "tenant_same_version_order", 1, map[string]interface{}{
+		"externalId": "member_same_version_order", "principalExternalId": "profile_same_version_order", "name": "Middle user", "email": "middle@example.test", "status": "active",
+	})
+	middle["occurredAt"] = "2026-07-25T09:00:00.000Z"
+	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", middle, "integration_token")
+	if response.Code != http.StatusOK || !jsonBodyHasField(response.Body, "outcome", "ignored_stale") {
+		t.Fatalf("expected middle same-version event to be ignored, got %d: %s", response.Code, response.Body)
+	}
+
+	var principal GatewayPrincipal
+	if err := store.db.First(&principal, "external_principal_id = ?", "profile_same_version_order").Error; err != nil {
+		t.Fatal(err)
+	}
+	if principal.Email != "newest@example.test" || principal.DisplayName != "Newest user" {
+		t.Fatalf("middle same-version event changed the latest principal: %+v", principal)
+	}
+	var managed GatewayManagedUser
+	if err := store.db.First(&managed, "external_principal_id = ?", "profile_same_version_order").Error; err != nil {
+		t.Fatal(err)
+	}
+	var user AdminUser
+	if err := store.db.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if user.Email != "newest@example.test" || user.Name != "Newest user" {
+		t.Fatalf("middle same-version event changed the latest managed user: %+v", user)
+	}
+}
+
+func TestGatewayManagedUserAdvancesTimestampWithoutEmail(t *testing.T) {
+	store := NewMemoryStore()
+	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_same_version_no_email", "tenant.created", "tenant", "tenant_same_version_no_email", "tenant_same_version_no_email", 1, map[string]interface{}{
+		"externalId": "tenant_same_version_no_email", "name": "Same-version no-email tenant", "status": "active",
+	}))
+	current := gatewayIntegrationEvent("evt_member_same_version_email_current", "tenant_member.added", "tenant_member", "member_same_version_no_email", "tenant_same_version_no_email", 1, map[string]interface{}{
+		"externalId": "member_same_version_no_email", "principalExternalId": "profile_same_version_no_email", "name": "Current user", "email": "current@example.test", "status": "active",
+	})
+	current["occurredAt"] = "2026-07-25T10:00:00.000Z"
+	applyGatewayIntegrationEventForTest(t, app, current)
+
+	newerWithoutEmail := gatewayIntegrationEvent("evt_member_same_version_no_email_newer", "tenant_member.updated", "tenant_member", "member_same_version_no_email", "tenant_same_version_no_email", 1, map[string]interface{}{
+		"externalId": "member_same_version_no_email", "principalExternalId": "profile_same_version_no_email", "name": "Current user", "status": "active",
+	})
+	newerWithoutEmail["occurredAt"] = "2026-07-25T11:00:00.000Z"
+	applyGatewayIntegrationEventForTest(t, app, newerWithoutEmail)
+
+	olderEmail := gatewayIntegrationEvent("evt_member_same_version_email_older", "tenant_member.updated", "tenant_member", "member_same_version_no_email", "tenant_same_version_no_email", 1, map[string]interface{}{
+		"externalId": "member_same_version_no_email", "principalExternalId": "profile_same_version_no_email", "name": "Older user", "email": "older@example.test", "status": "active",
+	})
+	olderEmail["occurredAt"] = "2026-07-25T10:30:00.000Z"
+	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", olderEmail, "integration_token")
+	if response.Code != http.StatusOK || !jsonBodyHasField(response.Body, "outcome", "ignored_stale") {
+		t.Fatalf("expected older email event to be ignored after timestamp-only update, got %d: %s", response.Code, response.Body)
+	}
+
+	var principal GatewayPrincipal
+	if err := store.db.First(&principal, "external_principal_id = ?", "profile_same_version_no_email").Error; err != nil {
+		t.Fatal(err)
+	}
+	if principal.Email != "current@example.test" || !principal.SourceOccurredAt.Equal(time.Date(2026, 7, 25, 11, 0, 0, 0, time.UTC)) {
+		t.Fatalf("older email event rewrote the principal after timestamp-only update: %+v", principal)
 	}
 }
