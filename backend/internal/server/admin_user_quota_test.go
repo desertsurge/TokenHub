@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -142,7 +143,7 @@ func TestAdminUserQuotaRequiresAndValidatesTenantContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index, tenantID := range []string{"tenant-a", "tenant-b"} {
-		tenant := GatewayTenant{ID: "gt-" + tenantID, ExternalTenantID: tenantID, Status: StatusActive}
+		tenant := GatewayTenant{ID: "gt-" + tenantID, ExternalTenantID: tenantID, Name: "Tenant " + tenantID, Status: StatusActive}
 		if err := store.db.Create(&tenant).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -156,11 +157,27 @@ func TestAdminUserQuotaRequiresAndValidatesTenantContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	store.CreateResource("quota-policies", AdminResource{ID: "quota-unscoped", Name: "Legacy unscoped user quota", Status: StatusActive, Fields: map[string]any{
+		"scope": "user", "scope_id": user.ID, "daily_tokens": int64(1),
+	}})
 	_, session, err := store.CreateAdminSession(user.ID, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	app := New(store).Handler()
+	contexts := doJSON(t, app, http.MethodGet, "/api/admin/usage/quota/tenants", nil, session.Token)
+	if contexts.Code != http.StatusOK {
+		t.Fatalf("quota tenant contexts = %d %s", contexts.Code, contexts.Body)
+	}
+	var contextPayload struct {
+		Data []UserQuotaTenant `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(contexts.Body), &contextPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(contextPayload.Data) != 2 || contextPayload.Data[0].ID != "tenant-a" || contextPayload.Data[1].ID != "tenant-b" {
+		t.Fatalf("quota tenant contexts = %+v", contextPayload.Data)
+	}
 	ambiguous := doJSON(t, app, http.MethodGet, "/api/admin/usage/quota", nil, session.Token)
 	if ambiguous.Code != http.StatusConflict || !containsJSONCode(ambiguous.Body, "tenant_context_required") {
 		t.Fatalf("multi-tenant quota request = %d %s", ambiguous.Code, ambiguous.Body)
@@ -173,11 +190,85 @@ func TestAdminUserQuotaRequiresAndValidatesTenantContext(t *testing.T) {
 	if err := json.Unmarshal([]byte(selected.Body), &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Usage.Daily.TotalTokens != 1 || snapshot.Limits.DailyTokens != 100 {
+	if snapshot.TenantID != "tenant-a" || snapshot.Usage.Daily.TotalTokens != 1 || snapshot.Limits.DailyTokens != 100 {
 		t.Fatalf("tenant-a quota snapshot = %+v", snapshot)
 	}
 	forbidden := doJSON(t, app, http.MethodGet, "/api/admin/usage/quota?tenant_id=tenant-c", nil, session.Token)
 	if forbidden.Code != http.StatusForbidden || !containsJSONCode(forbidden.Body, "tenant_context_forbidden") {
 		t.Fatalf("foreign tenant quota request = %d %s", forbidden.Code, forbidden.Body)
 	}
+}
+
+func TestTeamLeaderCannotManageUserQuotaOutsideSharedTenant(t *testing.T) {
+	store := NewMemoryStore()
+	leader, err := store.CreateAdminUser(AdminUser{ID: "usr_quota_leader", Username: "quota-leader", Name: "Quota Leader", Email: "quota-leader@example.test", Role: "team_leader", TeamID: "team_quota", Status: StatusActive}, "QuotaLeader123456!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.CreateAdminUser(AdminUser{ID: "usr_quota_target", Username: "quota-target", Name: "Quota Target", Email: "quota-target@example.test", Role: "user", TeamID: "team_quota", Status: StatusActive}, "QuotaTarget123456!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.CreateResource("teams", AdminResource{ID: "team_quota", Name: "Quota team", Status: StatusActive})
+	for _, item := range []struct {
+		tenantID  string
+		principal string
+		adminUser string
+	}{
+		{tenantID: "tenant-shared", principal: "principal-quota-leader", adminUser: leader.ID},
+		{tenantID: "tenant-shared", principal: "principal-quota-target", adminUser: target.ID},
+	} {
+		if err := store.db.FirstOrCreate(&GatewayTenant{ID: "gt-" + item.tenantID, ExternalTenantID: item.tenantID, Name: item.tenantID, Status: StatusActive}).Error; err != nil {
+			t.Fatal(err)
+		}
+		var tenant GatewayTenant
+		if err := store.db.First(&tenant, "external_tenant_id = ?", item.tenantID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := store.db.Create(&GatewayPrincipal{ID: item.principal, TenantID: tenant.ID, ExternalPrincipalID: item.principal, Status: StatusActive}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := store.db.Create(&GatewayManagedUser{ExternalPrincipalID: item.principal, AdminUserID: item.adminUser}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.CreateResource("quota-policies", AdminResource{ID: "quota-shared-tenant", Name: "Shared tenant quota", Status: StatusActive, Fields: map[string]any{
+		"scope": "user", "scope_id": target.ID, "tenant_external_id": "tenant-shared", "daily_tokens": int64(100),
+	}})
+	store.CreateResource("quota-policies", AdminResource{ID: "quota-foreign-tenant", Name: "Foreign tenant quota", Status: StatusActive, Fields: map[string]any{
+		"scope": "user", "scope_id": target.ID, "tenant_external_id": "tenant-foreign", "daily_tokens": int64(100),
+	}})
+	_, session, err := store.CreateAdminSession(leader.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+	listed := doJSON(t, app, http.MethodGet, "/api/admin/resources/quota-policies", nil, session.Token)
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body, "quota-shared-tenant") || strings.Contains(listed.Body, "quota-foreign-tenant") {
+		t.Fatalf("team leader quota listing crossed tenant boundary: %d %s", listed.Code, listed.Body)
+	}
+	updated := doJSON(t, app, http.MethodPatch, "/api/admin/resources/quota-policies/quota-foreign-tenant", map[string]any{
+		"fields": map[string]any{"daily_tokens": int64(50)},
+	}, session.Token)
+	if updated.Code != http.StatusForbidden || !strings.Contains(updated.Body, "quota_forbidden") {
+		t.Fatalf("team leader modified foreign-tenant quota: %d %s", updated.Code, updated.Body)
+	}
+	created := doJSON(t, app, http.MethodPost, "/api/admin/resources/quota-policies", map[string]any{
+		"name": "Invalid foreign tenant quota", "fields": map[string]any{
+			"scope": "user", "scope_id": target.ID, "tenant_external_id": "tenant-foreign", "daily_tokens": int64(10),
+		},
+	}, session.Token)
+	if created.Code != http.StatusForbidden || !strings.Contains(created.Body, "quota_forbidden") {
+		t.Fatalf("team leader created foreign-tenant quota: %d %s", created.Code, created.Body)
+	}
+	deleted := doJSON(t, app, http.MethodDelete, "/api/admin/resources/quota-policies/quota-foreign-tenant", nil, session.Token)
+	if deleted.Code != http.StatusForbidden || !strings.Contains(deleted.Body, "quota_forbidden") {
+		t.Fatalf("team leader deleted foreign-tenant quota: %d %s", deleted.Code, deleted.Body)
+	}
+	for _, item := range store.ListResources("quota-policies") {
+		if item.ID == "quota-foreign-tenant" {
+			return
+		}
+	}
+	t.Fatal("foreign-tenant quota was removed despite authorization failure")
 }

@@ -20,12 +20,13 @@ func TestGatewayUserQuotaIsTenantScopedAndUsesManagedUserPolicy(t *testing.T) {
 		Name:   "User quota",
 		Status: StatusActive,
 		Fields: map[string]any{
-			"scope":            "user",
-			"scope_id":         managed.AdminUserID,
-			"daily_tokens":     1000,
-			"monthly_tokens":   5000,
-			"daily_requests":   10,
-			"monthly_requests": 100,
+			"scope":              "user",
+			"scope_id":           managed.AdminUserID,
+			"tenant_external_id": "tenant_01",
+			"daily_tokens":       1000,
+			"monthly_tokens":     5000,
+			"daily_requests":     10,
+			"monthly_requests":   100,
 		},
 	})
 

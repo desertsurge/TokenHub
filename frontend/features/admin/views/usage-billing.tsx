@@ -13,7 +13,7 @@ import { BillingStatements } from "./billing-statements";
 import { ReconciliationManager } from "./billing-reconciliation";
 import { PersonalQuotaSummary } from "./personal-quota-summary";
 
-export function UsageView({ api, data, user }: { api: ApiContext; data: AppData; user: AdminUser }) {
+export function UsageView({ api, data, user, loading = false, onQuotaTenantChange }: { api: ApiContext; data: AppData; user: AdminUser; loading?: boolean; onQuotaTenantChange?: (tenantID: string) => void }) {
   const modelBreakdown = data.breakdown.models ?? [];
   const showMemberBreakdown = appRole(user.role) === "team_leader";
   const showExecutiveReport = appRole(user.role) !== "user";
@@ -21,7 +21,7 @@ export function UsageView({ api, data, user }: { api: ApiContext; data: AppData;
     <>
       <DailyUsageSection data={data} user={user} />
       {showExecutiveReport ? <ExecutiveUsageReport data={data} /> : <PersonalUsageSummary data={data} />}
-      <PersonalQuotaSummary quota={data.userQuota} />
+      <PersonalQuotaSummary quota={data.userQuota} loading={loading} onTenantChange={onQuotaTenantChange} />
       {showExecutiveReport ? <AdminUIReportTemplates api={api} data={data} /> : null}
       <div className="two-column">
         <DataSection title="模型用量">

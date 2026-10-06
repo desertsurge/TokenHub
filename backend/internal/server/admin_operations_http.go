@@ -45,7 +45,7 @@ func (s *Server) handleAdminProjectQuotaIncrease(w http.ResponseWriter, r *http.
 	fields["scope"] = "project"
 	fields["scope_id"] = project.ID
 	req.Fields = fields
-	if err := validateQuotaPolicyMinuteLimits(req.Fields); err != nil {
+	if err := validateQuotaPolicyLimits(req.Fields); err != nil {
 		writeError(w, r, err)
 		return
 	}

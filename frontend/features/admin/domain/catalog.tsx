@@ -78,6 +78,8 @@ export function emptyUserQuotaSnapshot() {
   const counter = { requests: 0, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_usd: 0 };
   return {
     user_id: "",
+    tenant_id: "",
+    tenants: [],
     policy_configured: false,
     limits: {
       rate_limit_rpm: 0,

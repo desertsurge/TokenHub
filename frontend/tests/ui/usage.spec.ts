@@ -16,6 +16,7 @@ function setupUsage(api: MockAPI) {
   };
   const quota: UserQuotaSnapshot = {
     user_id: user.id,
+    tenant_id: "tenant-a",
     policy_configured: true,
     limits: {
       rate_limit_rpm: 20, token_limit_tpm: 800, daily_requests: 100, monthly_requests: 1000,
@@ -30,7 +31,18 @@ function setupUsage(api: MockAPI) {
 
   api.respond("GET", "/api/admin/api-keys", { data: [] });
   api.respond("GET", "/api/admin/usage/daily", daily);
-  api.respond("GET", "/api/admin/usage/quota", quota);
+  api.respond("GET", "/api/admin/usage/quota/tenants", { data: [{ id: "tenant-a", name: "Tenant A" }, { id: "tenant-b", name: "Tenant B" }] });
+  api.define("GET", "/api/admin/usage/quota", request => {
+    const tenantID = request.query.get("tenant_id");
+    return {
+      json: tenantID === "tenant-b"
+        ? { ...quota, tenant_id: tenantID, limits: { ...quota.limits, rate_limit_rpm: 40 }, usage: { ...quota.usage, daily: { ...quota.usage.daily, total_tokens: 600 } } }
+        : quota,
+    };
+  }, query => {
+    const tenantID = query.get("tenant_id");
+    if (tenantID !== "tenant-a" && tenantID !== "tenant-b") throw new Error(`unexpected quota tenant ${tenantID}`);
+  });
   api.respond("GET", "/api/admin/usage/timeseries", { data: [] });
   api.respond("GET", "/api/admin/users", { data: [user] });
   api.respond("GET", "/api/admin/plugin-ui-manifest", { data: [] });
@@ -53,5 +65,12 @@ test("usage current-user quota is visible to the signed-in administrator", async
   await expect(quota.getByText("TPM 800")).toBeVisible();
   await expect(quota.getByText("最大并发 3")).toBeVisible();
   expect(api.calls.filter(call => call.path === "/api/admin/usage/quota")).toHaveLength(1);
+  const tenantSelector = quota.getByRole("combobox", { name: "当前租户" });
+  await expect(tenantSelector).toHaveValue("tenant-a");
+  await tenantSelector.selectOption("tenant-b");
+  await expect(quota.getByText("RPM 40")).toBeVisible();
+  const quotaCalls = api.calls.filter(call => call.path === "/api/admin/usage/quota");
+  expect(quotaCalls).toHaveLength(2);
+  expect(quotaCalls[1].query.get("tenant_id")).toBe("tenant-b");
   await capture(page, testInfo, quota, "usage-current-user-quota", "用量统计：当前用户配额");
 });

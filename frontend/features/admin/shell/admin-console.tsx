@@ -4,7 +4,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type LoadedData, loadPlanForView, mergeLoadedData } from "../core/data-loading";
 import { allNavGroupTitles, canAccessView, defaultViewForRole, rememberRecentView, standaloneViewMeta } from "../core/navigation";
-import { type UserQuotaSnapshot } from "../core/quota-types";
 import { clearOAuthAuthorizationResponse, clearOAuthLoginResult, clearPendingOAuthLogin, clearProviderAccountOAuthResultFromLocation, clearSavedSession, consumePasswordResetToken, forwardOAuthAuthorizationResponse, hasPendingProviderAccountOAuthResult, isOAuthAuthorizationResponse, isProviderAccountOAuthAuthorizationResponse, readOAuthLoginResult, readPendingOAuthLogin, readProviderAccountOAuthResultFromLocation, readSavedSession, savePendingProviderAccountOAuthResult, saveSession } from "../core/session";
 import { notificationChannelDefaultType, notificationChannelTypes, type AdapterDescriptor, type AdminResource, type AdminUIContribution, type AdminUser, type AlertDelivery, type AlertEvent, type APIKey, type AppData, type ApprovalRequest, type AuditEvent, authExpiredEventName, type BillingConnector, type BillingRecord, type BillingSyncRun, type ConfirmState, type GatewayChainPlan, languageStorageKey, type LoginIdentityProvider, type ModalState, type Model, type ModelRoute, type ModelRoutePolicy, type PluginActionDescriptor, type PluginBackgroundJobDescriptor, type PluginBackgroundJobRunRecord, type PluginDescriptor, type PluginMarketplacePlugin, type Project, type Provider, type ProviderCatalogEntry, type ProviderModel, type ProviderMonitoringSnapshot, type ProviderResource, type ReconciliationRule, type ReconciliationRun, type ReportExportHistoryItem, type RequestLog, type ResourceAction, type ResourceConfig, type SettingsTabKey, type SQLiteBackup, type ToolbarAction, type UsageBreakdown, type UsageDaily, type UsagePoint, type ViewKey, viewRoutes } from "../core/types";
 import { emptyData, emptySummary, filterByModelCategory, filterRows } from "../domain/catalog";
@@ -27,6 +26,7 @@ import { downloadReport } from "../resources/governance-config";
 import { adminFetch, adminMutate, importUsersFromCSVContent, isAuthExpiredError, loadRequestLabel, notificationChannelDefaults, permissionPartialLoadMessage, readAdminError, readLoadError, restoreDefaultModelCatalog } from "../resources/payloads";
 import { projectMemberConfig, projectMemberInitialValues } from "../resources/project-key-config";
 import { resourceConfigFor } from "../resources/settings-config";
+import { loadUserQuotaSnapshot } from "../resources/user-quota";
 import { usePagination } from "../shared/pagination";
 import { currentOAuthReturnURL, LoginView, ResetPasswordView } from "../shared/auth";
 import { ConfirmDialog, providerTypeOptionsFromData } from "../shared/ui";
@@ -407,7 +407,7 @@ export function AdminConsole({ defaultBaseURL }: { defaultBaseURL: string }) {
     return () => window.removeEventListener("tokenhub-issued-key", onIssuedKey);
   }, []);
 
-  async function load(view: ViewKey = activeView) {
+  async function load(view: ViewKey = activeView, options: { quotaTenantID?: string } = {}) {
     if (!adminToken || !currentUser) return;
     if (!canAccessView(currentUser, view)) return;
     setLoading(true);
@@ -432,7 +432,6 @@ export function AdminConsole({ defaultBaseURL }: { defaultBaseURL: string }) {
       queue(plan.approvals, "approvals", "/api/admin/approvals");
       queue(plan.sqliteBackups, "sqlite-backups", "/api/admin/sqlite/backups");
       queue(plan.dailyUsage, "daily-usage", "/api/admin/usage/daily");
-      queue(plan.userQuota, "user-quota", "/api/admin/usage/quota");
       queue(plan.breakdown, "breakdown", "/api/admin/usage/breakdown");
       queue(plan.timeseries, "timeseries", "/api/admin/usage/timeseries");
       queue(plan.users, "users", "/api/admin/users");
@@ -454,7 +453,12 @@ export function AdminConsole({ defaultBaseURL }: { defaultBaseURL: string }) {
         requests.push({ name: `resource:${kind}`, request: adminFetch(api, `/api/admin/resources/${kind}`), optional: true });
       }
 
-      const responses = await Promise.all(requests.map((item) => item.request));
+      const [responses, userQuota] = await Promise.all([
+        Promise.all(requests.map((item) => item.request)),
+        plan.userQuota
+          ? loadUserQuotaSnapshot(api, options.quotaTenantID ?? data.userQuota.tenant_id)
+          : Promise.resolve(undefined),
+      ]);
       const skippedResources: string[] = [];
       for (let index = 0; index < responses.length; index += 1) {
         const resp = responses[index];
@@ -468,6 +472,7 @@ export function AdminConsole({ defaultBaseURL }: { defaultBaseURL: string }) {
       }
 
       const loaded: LoadedData = {};
+      if (userQuota) loaded.userQuota = userQuota;
       for (let index = 0; index < responses.length; index += 1) {
         const name = requests[index].name;
         const resp = responses[index];
@@ -515,8 +520,6 @@ export function AdminConsole({ defaultBaseURL }: { defaultBaseURL: string }) {
           loaded.sqliteBackups = payload.data ?? [];
         } else if (name === "daily-usage") {
           loaded.dailyUsage = (await resp.json()) as UsageDaily;
-        } else if (name === "user-quota") {
-          loaded.userQuota = (await resp.json()) as UserQuotaSnapshot;
         } else if (name === "breakdown") {
           loaded.breakdown = (await resp.json()) as UsageBreakdown;
         } else if (name === "timeseries") {
@@ -998,7 +1001,13 @@ export function AdminConsole({ defaultBaseURL }: { defaultBaseURL: string }) {
               onManageKeys={() => selectView("api-keys")}
             />
           ) : activeView === "usage" ? (
-            <UsageView api={api} data={data} user={currentUser} />
+            <UsageView
+              api={api}
+              data={data}
+              user={currentUser}
+              loading={loading}
+              onQuotaTenantChange={(tenantID) => void load("usage", { quotaTenantID: tenantID })}
+            />
           ) : activeView === "billing" ? (
             <BillingView api={api} data={data} user={currentUser} loading={loading} onReload={() => load("billing")} />
           ) : activeView === "audit" ? (

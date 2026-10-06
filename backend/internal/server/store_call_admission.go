@@ -208,6 +208,10 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 	if err := s.checkRuntimeBudget(tx, privateProject, now); err != nil {
 		return admission, err
 	}
+	costCenterSnapshot, err := s.costCenterForProjectWithDB(tx, privateProject)
+	if err != nil {
+		return admission, err
+	}
 	admission.call = CallContext{
 		RequestID:             requestID,
 		Project:               privateProject,
@@ -221,6 +225,7 @@ func (s *GormStore) admitCallTransaction(ctx context.Context, tx *gorm.DB, key A
 		UserMinuteRequestHeld: userPolicy.Enabled() && userPolicy.Limits.RateLimitRPM > 0,
 		UserQuotaLimits:       userPolicy.Limits,
 		AttributedUserID:      attributedUserID,
+		CostCenterSnapshot:    &costCenterSnapshot,
 		RedisKeyLeaseHeld:     s.billingRedis != nil && effectiveLimits.MaxConcurrency > 0,
 		RedisUserLeaseHeld:    s.billingRedis != nil && userPolicy.Enabled() && userPolicy.Limits.MaxConcurrency > 0,
 	}

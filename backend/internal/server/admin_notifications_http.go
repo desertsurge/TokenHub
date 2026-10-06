@@ -950,7 +950,7 @@ func (s *Server) applyApprovalRequest(request ApprovalRequest, actor AdminUser) 
 			Fields:      fieldsFromPayload(payload["fields"]),
 		}
 		if request.ResourceType == "quota-policies" {
-			if err := validateQuotaPolicyMinuteLimits(resource.Fields); err != nil {
+			if err := validateQuotaPolicyLimits(resource.Fields); err != nil {
 				return nil, err
 			}
 		}

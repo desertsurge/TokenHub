@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -957,6 +958,9 @@ func (s *Server) filterQuotaPoliciesForTeamLeader(user AdminUser, resources []Ad
 		}
 	}
 	costCenters := s.teamCostCenterSet(user.TeamID)
+	var actorTenants map[string]bool
+	var actorTenantErr error
+	targetTenants := make(map[string]map[string]bool)
 	out := make([]AdminResource, 0, len(resources))
 	for _, item := range resources {
 		scope := strings.ToLower(strings.TrimSpace(firstStringField(item.Fields, "scope", "scope_type")))
@@ -970,6 +974,31 @@ func (s *Server) filterQuotaPoliciesForTeamLeader(user AdminUser, resources []Ad
 		case "user":
 			target, ok := s.findAdminUser(scopeID)
 			visible = ok && userHasTeam(target, user.TeamID)
+			if visible {
+				tenantID := strings.TrimSpace(firstStringField(item.Fields, "tenant_id", "tenant_external_id"))
+				if tenantID != "" {
+					if actorTenants == nil && actorTenantErr == nil {
+						actorTenants, actorTenantErr = s.adminUserTenantSet(user.ID)
+						if actorTenantErr != nil {
+							log.Printf("[tokenhub] failed to resolve team leader tenant scope user_id=%s: %v", user.ID, actorTenantErr)
+						}
+					}
+					if actorTenantErr != nil || !actorTenants[tenantID] {
+						visible = false
+					} else {
+						targetSet, cached := targetTenants[target.ID]
+						if !cached {
+							targetSet, err := s.adminUserTenantSet(target.ID)
+							if err != nil {
+								log.Printf("[tokenhub] failed to resolve quota target tenant scope user_id=%s: %v", target.ID, err)
+								targetSet = map[string]bool{}
+							}
+							targetTenants[target.ID] = targetSet
+						}
+						visible = targetSet[tenantID]
+					}
+				}
+			}
 		case "cost_center", "cost-center":
 			visible = costCenters[normalizeScopeValue(scopeID)]
 		default:
@@ -980,6 +1009,33 @@ func (s *Server) filterQuotaPoliciesForTeamLeader(user AdminUser, resources []Ad
 		}
 	}
 	return out
+}
+
+func (s *Server) adminUserHasActiveTenantChecked(userID, tenantID string) (bool, error) {
+	userID = strings.TrimSpace(userID)
+	tenantID = strings.TrimSpace(tenantID)
+	if userID == "" || tenantID == "" {
+		return false, nil
+	}
+	tenantSet, err := s.adminUserTenantSet(userID)
+	if err != nil {
+		return false, err
+	}
+	return tenantSet[tenantID], nil
+}
+
+func (s *Server) adminUserTenantSet(userID string) (map[string]bool, error) {
+	tenantSet := make(map[string]bool)
+	tenants, err := s.store.ListAdminQuotaTenants(userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, tenant := range tenants {
+		if tenant.ID != "" {
+			tenantSet[tenant.ID] = true
+		}
+	}
+	return tenantSet, nil
 }
 
 func (s *Server) canAccessScopedResource(user AdminUser, kind string, item AdminResource) bool {
@@ -1063,7 +1119,7 @@ func (s *Server) validateScopedResourceMutation(user AdminUser, kind string, res
 	}
 	var quotaFields map[string]any
 	if kind == "quota-policies" {
-		if err := validateQuotaPolicyMinuteLimits(req.Fields); err != nil {
+		if err := validateQuotaPolicyLimits(req.Fields); err != nil {
 			return err
 		}
 		fields := req.Fields
@@ -1109,6 +1165,29 @@ func (s *Server) validateScopedResourceMutation(user AdminUser, kind string, res
 			}
 			if target.Status != StatusActive && !strings.EqualFold(strings.TrimSpace(resultingStatus), StatusDisabled) {
 				return NewHTTPError(http.StatusBadRequest, "invalid_quota_policy_scope", "User quota policies require an active user")
+			}
+			if tenantID := strings.TrimSpace(firstStringField(fields, "tenant_id", "tenant_external_id")); tenantID != "" {
+				targetHasTenant, err := s.adminUserHasActiveTenantChecked(target.ID, tenantID)
+				if err != nil {
+					log.Printf("[tokenhub] failed to validate quota target tenant scope user_id=%s tenant_id=%s: %v", target.ID, tenantID, err)
+					return NewHTTPError(http.StatusInternalServerError, "quota_tenant_scope_unavailable", "Tenant membership could not be verified")
+				}
+				if !targetHasTenant {
+					if normalizeAdminRole(user.Role) == "team_leader" {
+						return NewHTTPError(http.StatusForbidden, "quota_forbidden", "Team leader can only manage user quotas within an active shared tenant")
+					}
+					return NewHTTPError(http.StatusBadRequest, "invalid_quota_policy_scope", "Tenant-scoped user quotas require an active user membership in the tenant")
+				}
+				if normalizeAdminRole(user.Role) == "team_leader" {
+					actorHasTenant, err := s.adminUserHasActiveTenantChecked(user.ID, tenantID)
+					if err != nil {
+						log.Printf("[tokenhub] failed to validate quota actor tenant scope user_id=%s tenant_id=%s: %v", user.ID, tenantID, err)
+						return NewHTTPError(http.StatusInternalServerError, "quota_tenant_scope_unavailable", "Tenant membership could not be verified")
+					}
+					if !actorHasTenant {
+						return NewHTTPError(http.StatusForbidden, "quota_forbidden", "Team leader can only manage user quotas within an active shared tenant")
+					}
+				}
 			}
 			if normalizeAdminRole(user.Role) == "team_leader" && !userHasTeam(target, user.TeamID) {
 				return NewHTTPError(http.StatusForbidden, "quota_forbidden", "Team leader can only manage quotas for users in own team")

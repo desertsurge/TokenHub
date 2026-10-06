@@ -898,6 +898,8 @@ export function loadRequestLabel(name: string) {
     "alert-deliveries": "通知记录",
     approvals: "审批记录",
     "sqlite-backups": "数据备份",
+    "user-quota": "当前用户配额",
+    "user-quota-tenants": "当前用户配额",
     breakdown: "用量统计",
     timeseries: "趋势统计",
     users: "用户管理",

@@ -407,7 +407,7 @@ func (s *GormStore) quotaBucketForUpdateWithTenant(tx *gorm.DB, keyID, scope, bu
 			return QuotaBucket{}, err
 		}
 	}
-	if tenantExternalID != "" && item.TenantExternalID == "" {
+	if tenantExternalID != "" && (item.TenantExternalID == "" || item.TenantExternalID == unattributedTenantExternalID) {
 		item.TenantExternalID = tenantExternalID
 		if err := tx.Model(&QuotaBucket{}).
 			Where("key_id = ? AND scope = ? AND bucket = ? AND attributed_user_id = ?", keyID, scope, bucket, attributedUserID).
@@ -645,7 +645,7 @@ func quotaPolicyLimits(tx *gorm.DB, project Project, key APIKey) (QuotaLimits, M
 		}
 		if scope == "user" {
 			policyTenantID := strings.TrimSpace(firstStringField(resource.Fields, "tenant_id", "tenant_external_id"))
-			if policyTenantID != "" && policyTenantID != strings.TrimSpace(key.TenantExternalID) {
+			if !quotaPolicyTenantMatches(policyTenantID, key.TenantExternalID) {
 				continue
 			}
 		}
@@ -734,7 +734,7 @@ func fillMissingKeyQuotaLimitScopes(scopes *MinuteLimitScopes, limits QuotaLimit
 	}
 }
 
-func validateQuotaPolicyMinuteLimits(fields map[string]any) error {
+func validateQuotaPolicyLimits(fields map[string]any) error {
 	for _, key := range []string{"rate_limit_rpm", "token_limit_tpm"} {
 		value, ok := fields[key]
 		if !ok || value == nil {
@@ -742,6 +742,24 @@ func validateQuotaPolicyMinuteLimits(fields map[string]any) error {
 		}
 		if !validNonNegativeInt64(value) {
 			return NewHTTPError(http.StatusBadRequest, "invalid_quota_policy_rate_limit", "Quota policy RPM and TPM limits must be non-negative 64-bit integers")
+		}
+	}
+	for _, key := range []string{"daily_requests", "monthly_requests", "daily_tokens", "monthly_tokens", "max_concurrency"} {
+		value, ok := fields[key]
+		if !ok || value == nil {
+			continue
+		}
+		if !validNonNegativeInt64(value) {
+			return NewHTTPError(http.StatusBadRequest, "invalid_quota_policy_limit", "Quota policy request, token, and concurrency limits must be non-negative 64-bit integers")
+		}
+	}
+	for _, key := range []string{"daily_cost_usd", "monthly_cost_usd"} {
+		value, ok := fields[key]
+		if !ok || value == nil {
+			continue
+		}
+		if !validNonNegativeFloat64(value) {
+			return NewHTTPError(http.StatusBadRequest, "invalid_quota_policy_limit", "Quota policy cost limits must be finite non-negative numbers")
 		}
 	}
 	return nil
@@ -764,6 +782,33 @@ func validNonNegativeInt64(value any) bool {
 	default:
 		return false
 	}
+}
+
+func validNonNegativeFloat64(value any) bool {
+	var parsed float64
+	switch typed := value.(type) {
+	case int:
+		parsed = float64(typed)
+	case int64:
+		parsed = float64(typed)
+	case float64:
+		parsed = typed
+	case json.Number:
+		value, err := strconv.ParseFloat(string(typed), 64)
+		if err != nil {
+			return false
+		}
+		parsed = value
+	case string:
+		value, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return false
+		}
+		parsed = value
+	default:
+		return false
+	}
+	return !math.IsNaN(parsed) && !math.IsInf(parsed, 0) && parsed >= 0
 }
 
 func strictLimitChanged(current int64, candidate int64) bool {
@@ -801,6 +846,13 @@ func quotaPolicyApplies(scope string, scopeID string, project Project, key APIKe
 	default:
 		return false
 	}
+}
+
+// quotaPolicyTenantMatches keeps user policies within the same tenant as the
+// request. An empty tenant is a distinct legacy/local scope; it must not be
+// promoted to every tenant when a key carries tenant context.
+func quotaPolicyTenantMatches(policyTenantID, requestTenantID string) bool {
+	return strings.TrimSpace(policyTenantID) == strings.TrimSpace(requestTenantID)
 }
 
 // runtimeBudgetCandidate is an active budget that can still block the current
@@ -1193,37 +1245,41 @@ func float64Field(fields map[string]any, key string) float64 {
 	}
 }
 
-func (s *GormStore) costCenterForProject(project Project) string {
+func (s *GormStore) costCenterForProject(project Project) (string, error) {
 	return s.costCenterForProjectWithDB(s.db, project)
 }
 
-func (s *GormStore) costCenterForProjectWithDB(db *gorm.DB, project Project) string {
+func (s *GormStore) costCenterForProjectWithDB(db *gorm.DB, project Project) (string, error) {
 	if costCenter := strings.TrimSpace(project.CostCenter); costCenter != "" {
-		return costCenter
+		return costCenter, nil
 	}
 	if strings.TrimSpace(project.TeamID) != "" {
 		var team AdminResource
 		if err := db.First(&team, "kind = ? AND id = ?", "teams", project.TeamID).Error; err == nil {
 			if costCenter := strings.TrimSpace(stringField(team.Fields, "cost_center")); costCenter != "" {
-				return costCenter
+				return costCenter, nil
 			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", fmt.Errorf("resolve project team cost center: %w", err)
 		}
 	}
 	if strings.TrimSpace(project.DefaultQuotaRef) != "" {
 		var quota AdminResource
 		if err := db.First(&quota, "kind = ? AND id = ?", "quota-policies", project.DefaultQuotaRef).Error; err == nil {
 			if costCenter := strings.TrimSpace(stringField(quota.Fields, "cost_center")); costCenter != "" {
-				return costCenter
+				return costCenter, nil
 			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", fmt.Errorf("resolve project quota cost center: %w", err)
 		}
 	}
 	if strings.TrimSpace(project.TeamID) != "" {
-		return project.TeamID
+		return project.TeamID, nil
 	}
 	if strings.TrimSpace(project.ID) != "" {
-		return "project:" + project.ID
+		return "project:" + project.ID, nil
 	}
-	return "unknown"
+	return "unknown", nil
 }
 
 func normalizeBillingPeriod(period string, now time.Time) string {

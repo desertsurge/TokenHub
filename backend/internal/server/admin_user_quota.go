@@ -24,6 +24,19 @@ func (s *Server) handleAdminUserQuotaGet(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
+func (s *Server) handleAdminUserQuotaTenantsGet(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAdmin(w, r, "usage", r.Method)
+	if !ok {
+		return
+	}
+	tenants, err := s.store.ListAdminQuotaTenants(user.ID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": tenants})
+}
+
 func (s *Server) userQuotaSnapshot(user AdminUser) (UserQuotaSnapshot, error) {
 	return s.userQuotaSnapshotForTenant(user, "")
 }
@@ -49,7 +62,7 @@ func (s *Server) userQuotaSnapshotForTenant(user AdminUser, tenantExternalID str
 			continue
 		}
 		policyTenantID := strings.TrimSpace(firstStringField(resource.Fields, "tenant_id", "tenant_external_id"))
-		if tenantExternalID != "" && policyTenantID != "" && policyTenantID != tenantExternalID {
+		if !quotaPolicyTenantMatches(policyTenantID, tenantExternalID) {
 			continue
 		}
 		policyConfigured = true
@@ -62,6 +75,7 @@ func (s *Server) userQuotaSnapshotForTenant(user AdminUser, tenantExternalID str
 	}
 	return UserQuotaSnapshot{
 		UserID:           userID,
+		TenantID:         tenantExternalID,
 		PolicyConfigured: policyConfigured,
 		Limits:           limits,
 		Usage:            usage,

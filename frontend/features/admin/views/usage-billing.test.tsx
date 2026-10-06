@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { emptyData } from "../domain/catalog";
 import { DailyUsageSection } from "./usage-billing";
 import { PersonalQuotaSummary } from "./personal-quota-summary";
@@ -92,5 +92,17 @@ describe("PersonalQuotaSummary", () => {
     expect(screen.getByText("TPM 800")).toBeInTheDocument();
     expect(screen.getByText("最大并发 3")).toBeInTheDocument();
     expect(screen.getByText("本月成本")).toBeInTheDocument();
+  });
+
+  it("lets a multi-tenant user select the quota tenant", () => {
+    const data = emptyData();
+    data.userQuota.tenant_id = "tenant-a";
+    data.userQuota.tenants = [{ id: "tenant-a", name: "Tenant A" }, { id: "tenant-b", name: "Tenant B" }];
+    const onTenantChange = vi.fn();
+
+    render(<PersonalQuotaSummary quota={data.userQuota} onTenantChange={onTenantChange} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "当前租户" }), { target: { value: "tenant-b" } });
+    expect(onTenantChange).toHaveBeenCalledWith("tenant-b");
   });
 });

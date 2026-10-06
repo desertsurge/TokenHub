@@ -415,10 +415,11 @@ func TestQuotaPolicyMinuteLimitsRejectInvalidValues(t *testing.T) {
 	})
 	app := New(store).Handler()
 	for _, test := range []struct {
-		name    string
-		method  string
-		path    string
-		payload map[string]any
+		name         string
+		method       string
+		path         string
+		payload      map[string]any
+		expectedCode string
 	}{
 		{
 			name: "negative create", method: http.MethodPost, path: "/api/admin/resources/quota-policies",
@@ -436,10 +437,24 @@ func TestQuotaPolicyMinuteLimitsRejectInvalidValues(t *testing.T) {
 			name: "negative project request", method: http.MethodPost, path: "/api/admin/projects/" + project.ID + "/quota-increase",
 			payload: map[string]any{"fields": map[string]any{"rate_limit_rpm": -1}},
 		},
+		{
+			name: "negative daily tokens", method: http.MethodPost, path: "/api/admin/resources/quota-policies",
+			payload:      map[string]any{"name": "Negative daily tokens", "fields": map[string]any{"daily_tokens": -1}},
+			expectedCode: "invalid_quota_policy_limit",
+		},
+		{
+			name: "negative monthly cost", method: http.MethodPatch, path: "/api/admin/resources/quota-policies/" + policy.ID,
+			payload:      map[string]any{"fields": map[string]any{"monthly_cost_usd": -0.01}},
+			expectedCode: "invalid_quota_policy_limit",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			response := doJSON(t, app, test.method, test.path, test.payload, "")
-			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body, "invalid_quota_policy_rate_limit") {
+			expectedCode := test.expectedCode
+			if expectedCode == "" {
+				expectedCode = "invalid_quota_policy_rate_limit"
+			}
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body, expectedCode) {
 				t.Fatalf("invalid quota policy returned %d: %s", response.Code, response.Body)
 			}
 		})

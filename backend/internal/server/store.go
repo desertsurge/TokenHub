@@ -121,6 +121,7 @@ type Store interface {
 	IsGatewayManagedAdminUser(userID string) bool
 	ResolveGatewayManagedQuotaUser(tenantExternalID, principalExternalID string) (AdminUser, error)
 	ResolveAdminQuotaTenant(userID string, requestedTenantID string) (string, error)
+	ListAdminQuotaTenants(userID string) ([]UserQuotaTenant, error)
 	ResolveGatewayManagedOIDCUser(principalID, tenantExternalID, issuer, subject string) (AdminUser, error)
 	GetGatewayIntegrationReconciliation(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error)
 	GetGatewayIntegrationReconciliationWithDetails(tenantExternalID string) (GatewayIntegrationReconciliationSummary, error)
@@ -150,6 +151,7 @@ type Store interface {
 	ListProjectKeys(projectID string) []APIKey
 	ListAPIKeys() []APIKey
 	GetAPIKey(id string) (APIKey, bool)
+	ResolveUsageAttributionUserID(key APIKey, project Project) string
 	UpdateAPIKey(id string, patch APIKey) (APIKey, error)
 	RotateAPIKey(id string, graceUntil *time.Time) (APIKey, string, error)
 	DeleteAPIKey(id string) error

@@ -216,9 +216,15 @@ type QuotaPolicyUsage struct {
 // scoped by the authenticated session rather than accepting a user ID.
 type UserQuotaSnapshot struct {
 	UserID           string           `json:"user_id"`
+	TenantID         string           `json:"tenant_id,omitempty"`
 	PolicyConfigured bool             `json:"policy_configured"`
 	Limits           QuotaLimits      `json:"limits"`
 	Usage            QuotaPolicyUsage `json:"usage"`
+}
+
+type UserQuotaTenant struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type Model struct {
@@ -1375,6 +1381,9 @@ type CallContext struct {
 	// AttributedUserID is captured at admission so settlement remains attached
 	// to the owner who actually started the request, even if the key is transferred.
 	AttributedUserID string
+	// CostCenterSnapshot is resolved at admission so mutable project, team, and
+	// quota-policy fields cannot rewrite attribution while a request is running.
+	CostCenterSnapshot *string
 	// StreamOutputCommitted keeps the reservation when a stream delivered data but
 	// ended before an authoritative usage event was received.
 	StreamOutputCommitted bool

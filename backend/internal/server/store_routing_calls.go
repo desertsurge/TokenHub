@@ -693,7 +693,16 @@ func (s *GormStore) finishCallTransaction(tx *gorm.DB, call CallContext, route R
 		}
 	}
 	if usage.TotalTokens > 0 || usage.CostUSD > 0 {
-		costCenter := s.costCenterForProjectWithDB(tx, call.Project)
+		costCenter := ""
+		if call.CostCenterSnapshot != nil {
+			costCenter = *call.CostCenterSnapshot
+		} else {
+			var err error
+			costCenter, err = s.costCenterForProjectWithDB(tx, call.Project)
+			if err != nil {
+				return err
+			}
+		}
 		if err := tx.Create(newUsageRecord(call, route, usage, costCenter, now)).Error; err != nil {
 			return err
 		}
@@ -1109,6 +1118,9 @@ func (s *GormStore) createImageJob(tx *gorm.DB, job ImageJob, prompt string) (Im
 	}
 	if job.CreatedAt.IsZero() {
 		job.CreatedAt = time.Now().UTC()
+	}
+	if err := hydrateAsyncJobAttribution(tx, job.ProjectID, job.APIKeyID, &job.TenantExternalID, &job.AttributedUserID); err != nil {
+		return ImageJob{}, err
 	}
 	job.PromptCiphertext = s.encryptSecret(prompt)
 	job.Prompt = prompt

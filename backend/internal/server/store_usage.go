@@ -94,9 +94,15 @@ func (s *GormStore) GenerateBillingPeriod(period string) (map[string]any, error)
 	teamTotals := map[string]float64{}
 	for _, record := range records {
 		project, _ := s.GetProject(record.ProjectID)
-		costCenter := s.costCenterForProject(project)
+		costCenter := ""
 		if record.CostCenterSnapshot != nil {
 			costCenter = *record.CostCenterSnapshot
+		} else {
+			var err error
+			costCenter, err = s.costCenterForProject(project)
+			if err != nil {
+				return nil, err
+			}
 		}
 		key := costCenter + "\x00" + record.ProjectID
 		item, ok := buckets[key]

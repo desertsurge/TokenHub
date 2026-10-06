@@ -2,9 +2,10 @@ import { type UserQuotaSnapshot } from "../core/quota-types";
 import { compactNumber, formatMoney, formatNumber } from "../domain/formatting";
 import { formatTranslationTemplate, languageLocale, tx } from "../i18n/runtime";
 
-export function PersonalQuotaSummary({ quota }: { quota: UserQuotaSnapshot }) {
+export function PersonalQuotaSummary({ quota, loading = false, onTenantChange }: { quota: UserQuotaSnapshot; loading?: boolean; onTenantChange?: (tenantID: string) => void }) {
   const limits = quota.limits;
   const usage = quota.usage;
+  const tenants = quota.tenants ?? [];
   return (
     <section className="executive-report personal-quota-report">
       <header className="executive-report-head">
@@ -13,6 +14,14 @@ export function PersonalQuotaSummary({ quota }: { quota: UserQuotaSnapshot }) {
           <h2>{tx("当前用户配额")}</h2>
         </div>
         <div className="executive-report-tools">
+          {tenants.length > 1 ? (
+            <label className="personal-quota-tenant">
+              <span>{tx("当前租户")}</span>
+              <select disabled={loading} value={quota.tenant_id ?? ""} onChange={(event) => onTenantChange?.(event.target.value)}>
+                {tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name || tenant.id}</option>)}
+              </select>
+            </label>
+          ) : tenants.length === 1 ? <span>{tenants[0].name || tenants[0].id}</span> : null}
           <span>{quota.policy_configured ? tx("已配置用户聚合策略") : tx("未配置用户聚合策略")}</span>
           <span>{tx("按当前用户归属统计")}</span>
         </div>

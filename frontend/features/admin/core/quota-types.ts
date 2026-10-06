@@ -6,8 +6,15 @@ export type UserQuotaCounter = {
   cost_usd: number;
 };
 
+export type UserQuotaTenant = {
+  id: string;
+  name: string;
+};
+
 export type UserQuotaSnapshot = {
   user_id: string;
+  tenant_id?: string;
+  tenants?: UserQuotaTenant[];
   policy_configured: boolean;
   limits: {
     rate_limit_rpm: number;

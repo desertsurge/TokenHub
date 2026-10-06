@@ -101,6 +101,8 @@ TokenHub resolves the attributed user with the same order used for usage account
 
 User limits are enforced alongside the applicable API Key, Project, Team, and global limits. Positive limits keep the existing strictest-value behavior, while user counters remain aggregate rather than becoming a per-Key allowance. User maximum concurrency is held in addition to the effective Key-scoped concurrency lease, so neither constraint can bypass the other.
 
+For tenant-managed users, add `tenant_external_id` to the user policy. That policy applies only to requests in the same tenant; an empty tenant value remains reserved for local or legacy unscoped users and is not inherited by tenant-scoped requests.
+
 Admission reserves user requests and estimated tokens before any Provider call. The shared settlement transaction reconciles the reservation to actual metered usage and uses the request ID as its durable idempotency marker for buffered, streaming, image, and background Responses calls. Background jobs persist their reservation state so cancellation, restart recovery, and stale workers cannot settle it twice. PostgreSQL uses transaction-scoped advisory locks and row locks across replicas; SQLite uses its single-backend transaction serialization. A blocked request returns HTTP 429 before Provider invocation with `details.scope` set to `user`. Audit payloads, alerts, and metrics retain that bounded scope without exposing the user ID or any API Key secret.
 
 ## Self-hosted compatible APIs

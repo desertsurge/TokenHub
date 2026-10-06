@@ -3,6 +3,8 @@ package server
 import (
 	"path/filepath"
 	"testing"
+
+	"gorm.io/gorm"
 )
 
 func TestQuotaBucketMigrationPreservesUnknownAndUserScopedHistory(t *testing.T) {
@@ -150,5 +152,126 @@ func TestBackfillAsyncJobTenantAttribution(t *testing.T) {
 	}
 	if response.TenantExternalID != unattributedTenantExternalID {
 		t.Fatalf("deleted-key response job tenant = %q, want unassigned marker", response.TenantExternalID)
+	}
+}
+
+func TestAsyncJobCreationHydratesTenantAndManagedUserAttribution(t *testing.T) {
+	store := NewMemoryStore()
+	managedUser, err := store.CreateAdminUser(AdminUser{
+		ID: "usr_async_managed", Username: "async-managed", Email: "async-managed@example.test",
+		Role: "user", Status: StatusActive,
+	}, "AsyncManaged123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&GatewayManagedUser{ExternalPrincipalID: "principal-async", AdminUserID: managedUser.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	project := store.CreateProject(Project{ID: "prj_async_hydrate", Name: "Async hydrate", OwnerUserID: "usr_project_owner", Status: StatusActive})
+	key, _, err := store.CreateAPIKey(project.ID, APIKey{
+		ID: "key_async_hydrate", TenantExternalID: "tenant-async", Status: StatusActive,
+		ManagedBy: gatewayModelAccessKeyManagedBy, PrincipalType: "user", PrincipalExternalID: "principal-async",
+	}, "thk_async_hydrate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := store.CreateResponseJob(ResponseJob{ID: "resp_async_hydrate", ProjectID: project.ID, APIKeyID: key.ID}, []byte(`{"model":"async"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.TenantExternalID != "tenant-async" || response.AttributedUserID != managedUser.ID {
+		t.Fatalf("response job attribution = tenant %q user %q", response.TenantExternalID, response.AttributedUserID)
+	}
+	image, err := store.CreateImageJob(ImageJob{ID: "img_async_hydrate", ProjectID: project.ID, APIKeyID: key.ID}, "prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image.TenantExternalID != "tenant-async" || image.AttributedUserID != managedUser.ID {
+		t.Fatalf("image job attribution = tenant %q user %q", image.TenantExternalID, image.AttributedUserID)
+	}
+}
+
+type asyncAttributionStoreDecorator struct{ Store }
+
+func TestAsyncJobAttributionSurvivesStoreDecoration(t *testing.T) {
+	store := NewMemoryStore()
+	managedUser, err := store.CreateAdminUser(AdminUser{
+		ID: "usr_async_decorated", Username: "async-decorated", Email: "async-decorated@example.test",
+		Role: "user", Status: StatusActive,
+	}, "AsyncDecorated123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&GatewayManagedUser{ExternalPrincipalID: "principal-decorated", AdminUserID: managedUser.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	project := store.CreateProject(Project{ID: "prj_async_decorated", OwnerUserID: "usr_project_owner", Status: StatusActive})
+	key := APIKey{
+		ManagedBy: gatewayModelAccessKeyManagedBy, PrincipalType: "user", PrincipalExternalID: "principal-decorated",
+	}
+	decorated := asyncAttributionStoreDecorator{Store: store}
+
+	if got := resolvedUsageAttributionUserID(decorated, key, project); got != managedUser.ID {
+		t.Fatalf("decorated store attribution = %q, want %q", got, managedUser.ID)
+	}
+}
+
+func TestAsyncJobCreationPreservesAdmissionAttribution(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{ID: "prj_async_pinned", Name: "Pinned attribution", Status: StatusActive})
+	key, _, err := store.CreateAPIKey(project.ID, APIKey{ID: "key_async_pinned", TenantExternalID: "tenant-pinned", Status: StatusActive}, "thk_async_pinned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinnedUserID := "usr_pinned_at_admission"
+	response, err := store.CreateResponseJob(ResponseJob{
+		ID: "resp_async_pinned", ProjectID: project.ID, APIKeyID: key.ID,
+		TenantExternalID: "tenant-pinned", AttributedUserID: pinnedUserID,
+	}, []byte(`{"model":"async"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.TenantExternalID != "tenant-pinned" || response.AttributedUserID != pinnedUserID {
+		t.Fatalf("response job changed pinned attribution = tenant %q user %q", response.TenantExternalID, response.AttributedUserID)
+	}
+	image, err := store.CreateImageJob(ImageJob{
+		ID: "img_async_pinned", ProjectID: project.ID, APIKeyID: key.ID,
+		TenantExternalID: "tenant-pinned", AttributedUserID: pinnedUserID,
+	}, "prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image.TenantExternalID != "tenant-pinned" || image.AttributedUserID != pinnedUserID {
+		t.Fatalf("image job changed pinned attribution = tenant %q user %q", image.TenantExternalID, image.AttributedUserID)
+	}
+
+	admitted := imageJobWithAdmission(ImageJob{}, CallContext{
+		Key: APIKey{TenantExternalID: "tenant-pinned"}, AttributedUserID: pinnedUserID,
+	})
+	if admitted.TenantExternalID != "tenant-pinned" || admitted.AttributedUserID != pinnedUserID {
+		t.Fatalf("image admission attribution = tenant %q user %q", admitted.TenantExternalID, admitted.AttributedUserID)
+	}
+}
+
+func TestQuotaBucketForUpdateRepairsUnassignedTenantMarker(t *testing.T) {
+	store := NewMemoryStore()
+	if err := store.db.Create(&QuotaBucket{
+		KeyID: "key_recreated", Scope: "day", Bucket: "2026-10-01",
+		AttributedUserID: unattributedQuotaUserID, TenantExternalID: unattributedTenantExternalID,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Transaction(func(tx *gorm.DB) error {
+		_, err := store.quotaBucketForUpdateWithTenant(tx, "key_recreated", "day", "2026-10-01", "tenant-recreated")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var row QuotaBucket
+	if err := store.db.First(&row, "key_id = ? AND scope = ? AND bucket = ?", "key_recreated", "day", "2026-10-01").Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.TenantExternalID != "tenant-recreated" {
+		t.Fatalf("recreated key tenant marker = %q, want tenant-recreated", row.TenantExternalID)
 	}
 }

@@ -106,10 +106,8 @@ func (s *GormStore) aggregateUserQuotaCounter(tx *gorm.DB, userID string, scope 
 		Select("COALESCE(SUM(qb.requests), 0) AS requests, COALESCE(SUM(qb.prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(qb.completion_tokens), 0) AS completion_tokens, COALESCE(SUM(qb.total_tokens), 0) AS total_tokens, COALESCE(SUM(qb.cost_usd), 0) AS cost_usd").
 		Where("qb.scope = ? AND qb.bucket = ?", scope, bucket).
 		Where("qb.key_id <> ?", userQuotaBucketKey(userID, tenantExternalID)).
-		Where("qb.attributed_user_id = ?", strings.TrimSpace(userID))
-	if tenantExternalID != "" {
-		query = query.Where("qb.tenant_external_id = ?", tenantExternalID)
-	}
+		Where("qb.attributed_user_id = ?", strings.TrimSpace(userID)).
+		Where("COALESCE(qb.tenant_external_id, '') = ?", tenantExternalID)
 	err := query.Scan(&aggregate).Error
 	return aggregate, err
 }

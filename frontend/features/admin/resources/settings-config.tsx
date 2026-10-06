@@ -82,6 +82,13 @@ function quotaPolicyConfig(): ResourceConfig<AdminResource> {
       required: true,
       help: "用户作用域会合并该用户所有归属 Key 的用量，Key 轮换不会重置额度。",
     },
+    {
+      key: "tenant_external_id",
+      label: "租户 ID",
+      visible: (values) => values.scope === "user",
+      placeholder: "tenant_external_id",
+      help: "用户作用域填写后仅匹配该租户内的用户额度；留空表示本地或历史无租户策略。",
+    },
     { key: "rate_limit_rpm", label: "每分钟请求数（RPM）", type: "number" },
     { key: "token_limit_tpm", label: "每分钟 Token 数（TPM）", type: "number" },
     { key: "daily_requests", label: "日请求", type: "number" },
