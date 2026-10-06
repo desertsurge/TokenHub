@@ -130,7 +130,7 @@ func (s *Server) authorizedResponseJob(project Project, key APIKey, id string) (
 	if job.ProjectID != project.ID || job.APIKeyID != key.ID {
 		return ResponseJob{}, false
 	}
-	if job.AttributedUserID != usageAttributionUserID(key, project) {
+	if job.TenantExternalID != strings.TrimSpace(key.TenantExternalID) || job.AttributedUserID != resolvedUsageAttributionUserID(s.store, key, project) {
 		return ResponseJob{}, false
 	}
 	if !keyCanAccessModel(s.store, key, job.Model) {
@@ -256,7 +256,8 @@ func (s *Server) submitResponseJob(w http.ResponseWriter, r *http.Request, proje
 		ID:               NewID("resp"),
 		ProjectID:        project.ID,
 		APIKeyID:         key.ID,
-		AttributedUserID: usageAttributionUserID(key, project),
+		TenantExternalID: strings.TrimSpace(key.TenantExternalID),
+		AttributedUserID: resolvedUsageAttributionUserID(s.store, key, project),
 		Status:           responseJobStatusQueued,
 		Phase:            responseJobPhaseQueued,
 		Model:            request.Model,
@@ -394,7 +395,7 @@ func (s *Server) processResponseJob(job ResponseJob, owner string, leaseTTL time
 
 	project, projectOK := s.store.GetProject(job.ProjectID)
 	key, keyOK := responseJobAPIKey(s.store, job.ProjectID, job.APIKeyID)
-	if !projectOK || !keyOK || usageAttributionUserID(key, project) != job.AttributedUserID {
+	if !projectOK || !keyOK || job.TenantExternalID != strings.TrimSpace(key.TenantExternalID) || resolvedUsageAttributionUserID(s.store, key, project) != job.AttributedUserID {
 		if s.stopResponseJobForShutdown(job, owner, resultTTL) {
 			return
 		}

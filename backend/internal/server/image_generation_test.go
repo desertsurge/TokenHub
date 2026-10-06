@@ -479,6 +479,36 @@ func TestImageAuthorizationHappensBeforeJobOrAssetPersistence(t *testing.T) {
 	}
 }
 
+func TestImageJobReadIsBoundToCreatingAPIKey(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{ID: "prj_image_job_scope", Name: "Scoped image project", OwnerUserID: "user-a", Status: StatusActive})
+	keyA, secretA, err := store.CreateAPIKey(project.ID, APIKey{ID: "key_image_job_a", OwnerUserID: "user-a", Status: StatusActive}, "thk_image_job_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, secretB, err := store.CreateAPIKey(project.ID, APIKey{ID: "key_image_job_b", OwnerUserID: "user-b", Status: StatusActive}, "thk_image_job_b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := store.CreateImageJob(ImageJob{
+		ID: "imgjob_scope", ProjectID: project.ID, APIKeyID: keyA.ID,
+		Status: imageJobStatusCompleted, Model: openAIImageModelName, Action: "generate",
+	}, "private image prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewWithConfig(store, Config{AdminToken: "image-job-scope-admin", SecretKey: "image-job-scope-secret"})
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	other := doImageJSON(t, server.Handler(), http.MethodGet, "/v1/image-jobs/"+job.ID, nil, secretB, nil)
+	if other.Code != http.StatusNotFound || !strings.Contains(other.Body, "image_job_not_found") {
+		t.Fatalf("other API key read = %d %s", other.Code, other.Body)
+	}
+	owner := doImageJSON(t, server.Handler(), http.MethodGet, "/v1/image-jobs/"+job.ID, nil, secretA, nil)
+	if owner.Code != http.StatusOK || !strings.Contains(owner.Body, job.ID) {
+		t.Fatalf("creating API key read = %d %s", owner.Code, owner.Body)
+	}
+}
+
 func TestImageRouteCandidatesHookCanSelectApprovedImageRoute(t *testing.T) {
 	imageBytes := realPNGFixture(t)
 	store := NewMemoryStore()

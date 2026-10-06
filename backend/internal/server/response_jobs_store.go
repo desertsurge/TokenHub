@@ -106,6 +106,9 @@ func (s *GormStore) CreateResponseJob(job ResponseJob, requestJSON []byte) (Resp
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	err = s.db.Transaction(func(tx *gorm.DB) error {
+		if err := hydrateAsyncJobAttribution(tx, job.ProjectID, job.APIKeyID, &job.TenantExternalID, &job.AttributedUserID); err != nil {
+			return err
+		}
 		now, nowErr := s.databaseNow(tx)
 		if nowErr != nil {
 			return nowErr

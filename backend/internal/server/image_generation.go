@@ -367,7 +367,7 @@ func (s *Server) handleImageJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleImageJobGet(w http.ResponseWriter, r *http.Request) {
-	project, _, err := s.authenticate(r)
+	project, key, err := s.authenticate(r)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -378,7 +378,9 @@ func (s *Server) handleImageJobGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job, ok := s.store.GetImageJob(id)
-	if !ok || job.ProjectID != project.ID {
+	if !ok || job.ProjectID != project.ID || job.APIKeyID != key.ID ||
+		job.TenantExternalID != strings.TrimSpace(key.TenantExternalID) ||
+		job.AttributedUserID != resolvedUsageAttributionUserID(s.store, key, project) {
 		writeError(w, r, NewHTTPError(http.StatusNotFound, "image_job_not_found", "Image job not found"))
 		return
 	}
@@ -560,7 +562,8 @@ func (s *Server) finishImageJobPreflightFailure(w http.ResponseWriter, r *http.R
 }
 
 func imageJobWithAdmission(job ImageJob, call CallContext) ImageJob {
-	job.TenantExternalID = call.Key.TenantExternalID
+	job.TenantExternalID = strings.TrimSpace(call.Key.TenantExternalID)
+	job.AttributedUserID = strings.TrimSpace(call.AttributedUserID)
 	job.TokenLimitBucket = call.TokenLimitBucket
 	job.MinuteRequestHeld = call.MinuteRequestHeld
 	job.UserQuotaEnabled = call.UserQuotaEnabled
