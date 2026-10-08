@@ -139,6 +139,15 @@
       "checksum": "tokenhub-schema-gateway-principal-email-v1",
       "lock_timeout_seconds": 30,
       "statement_budget": 3
+    },
+    {
+      "version": 17,
+      "name": "add-gateway-existing-user-link",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-gateway-existing-user-link-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 3
     }
   ]
 }

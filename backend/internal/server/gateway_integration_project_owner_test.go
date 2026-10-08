@@ -15,13 +15,20 @@ func TestGatewayProjectRequiresActiveManagedOwner(t *testing.T) {
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_owner_member_without_email", "tenant_member.added", "tenant_member", "membership_owner", "tenant_owner", 1, map[string]interface{}{
 		"externalId": "membership_owner", "principalExternalId": "principal_owner", "name": "Project owner",
 	}))
+	var managed GatewayManagedUser
+	if err := store.db.First(&managed, "external_principal_id = ?", "principal_owner").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Model(&AdminUser{}).Where("id = ?", managed.AdminUserID).Update("status", StatusDisabled).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	projectEvent := gatewayIntegrationEvent("evt_owner_project", "project.created", "project", "project_owner", "tenant_owner", 1, map[string]interface{}{
 		"externalId": "project_owner", "name": "Owned project", "ownerExternalId": "principal_owner",
 	})
 	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", projectEvent, "integration_token")
 	if response.Code != http.StatusConflict || !jsonBodyHasCode(response.Body, "integration_dependency_missing") {
-		t.Fatalf("expected unsynchronized owner rejection, got %d: %s", response.Code, response.Body)
+		t.Fatalf("expected unavailable owner rejection, got %d: %s", response.Code, response.Body)
 	}
 	var projectCount int64
 	if err := store.db.Model(&GatewayProject{}).Where("external_project_id = ?", "project_owner").Count(&projectCount).Error; err != nil {

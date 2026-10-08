@@ -30,7 +30,11 @@ import (
 // and checksums. The caller holds the shared schema migration lock for both
 // SQLite and PostgreSQL.
 func adoptSchemaLedger(ctx context.Context, db *sql.DB, driver, dsn string, legacy func(ctx context.Context) error) error {
+	legacyAdopted := false
 	reference := func(ctx context.Context) (dbschema.ObjectSet, error) {
+		if legacyAdopted {
+			return buildSchemaReferenceForMode(ctx, driver, dsn, schemaReferenceLegacy)
+		}
 		return schemaReferenceSnapshot(ctx, driver, dsn)
 	}
 	options := []dbschema.Option{
@@ -60,7 +64,13 @@ func adoptSchemaLedger(ctx context.Context, db *sql.DB, driver, dsn string, lega
 	if err != nil {
 		return err
 	}
-	_, err = runner.Adopt(ctx, legacy)
+	_, err = runner.Adopt(ctx, func(ctx context.Context) error {
+		if err := legacy(ctx); err != nil {
+			return err
+		}
+		legacyAdopted = true
+		return nil
+	})
 	return err
 }
 
@@ -119,12 +129,27 @@ func schemaReferenceSnapshot(ctx context.Context, driver, dsn string) (dbschema.
 }
 
 func buildSchemaReference(ctx context.Context, driver, dsn string) (dbschema.ObjectSet, error) {
-	return buildSchemaReferenceWithExpansions(ctx, driver, dsn, false)
+	return buildSchemaReferenceForMode(ctx, driver, dsn, schemaReferenceFrozen)
 }
+
+type schemaReferenceMode int
+
+const (
+	schemaReferenceFrozen schemaReferenceMode = iota
+	schemaReferenceLegacy
+	schemaReferenceExpanded
+)
 
 // Adoption compares the frozen baseline before applying expansions. Maintenance
 // verification instead requires the current structure, including those expansions.
 func buildSchemaReferenceWithExpansions(ctx context.Context, driver, dsn string, expand bool) (dbschema.ObjectSet, error) {
+	if expand {
+		return buildSchemaReferenceForMode(ctx, driver, dsn, schemaReferenceExpanded)
+	}
+	return buildSchemaReferenceForMode(ctx, driver, dsn, schemaReferenceFrozen)
+}
+
+func buildSchemaReferenceForMode(ctx context.Context, driver, dsn string, mode schemaReferenceMode) (dbschema.ObjectSet, error) {
 	switch driver {
 	case "sqlite":
 		scratchDSN := fmt.Sprintf("file:%s?mode=memory&cache=shared", NewID("schemaref"))
@@ -137,11 +162,17 @@ func buildSchemaReferenceWithExpansions(ctx context.Context, driver, dsn string,
 			return dbschema.ObjectSet{}, err
 		}
 		defer sqlDB.Close()
-		if err := migrateSchemaObjects(db, driver); err != nil {
-			return dbschema.ObjectSet{}, fmt.Errorf("build sqlite schema reference: %w", err)
+		if mode != schemaReferenceFrozen {
+			if err := migrateSchemaObjects(db, driver); err != nil {
+				return dbschema.ObjectSet{}, fmt.Errorf("build sqlite schema reference: %w", err)
+			}
 		}
-		if expand {
+		if mode == schemaReferenceExpanded {
 			if err := expandSchemaReference(ctx, sqlDB, driver); err != nil {
+				return dbschema.ObjectSet{}, err
+			}
+		} else if mode == schemaReferenceFrozen {
+			if err := applyFrozenBaselineReference(ctx, sqlDB, driver); err != nil {
 				return dbschema.ObjectSet{}, err
 			}
 		}
@@ -178,11 +209,17 @@ func buildSchemaReferenceWithExpansions(ctx context.Context, driver, dsn string,
 			return dbschema.ObjectSet{}, err
 		}
 		defer sqlDB.Close()
-		if err := migrateSchemaObjects(db, driver); err != nil {
-			return dbschema.ObjectSet{}, fmt.Errorf("build postgres schema reference: %w", err)
+		if mode != schemaReferenceFrozen {
+			if err := migrateSchemaObjects(db, driver); err != nil {
+				return dbschema.ObjectSet{}, fmt.Errorf("build postgres schema reference: %w", err)
+			}
 		}
-		if expand {
+		if mode == schemaReferenceExpanded {
 			if err := expandSchemaReference(ctx, sqlDB, driver); err != nil {
+				return dbschema.ObjectSet{}, err
+			}
+		} else if mode == schemaReferenceFrozen {
+			if err := applyFrozenBaselineReference(ctx, sqlDB, driver); err != nil {
 				return dbschema.ObjectSet{}, err
 			}
 		}
@@ -190,6 +227,25 @@ func buildSchemaReferenceWithExpansions(ctx context.Context, driver, dsn string,
 	default:
 		return dbschema.ObjectSet{}, fmt.Errorf("unsupported schema reference driver %q", driver)
 	}
+}
+
+func applyFrozenBaselineReference(ctx context.Context, db *sql.DB, driver string) error {
+	var statements []string
+	var err error
+	if driver == "postgres" {
+		statements, err = dbschema.PostgresBaselineStatements()
+	} else {
+		statements, err = dbschema.SQLiteBaselineStatements()
+	}
+	if err != nil {
+		return err
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("build %s baseline reference: %w", driver, err)
+		}
+	}
+	return nil
 }
 
 func expandSchemaReference(ctx context.Context, db *sql.DB, driver string) error {

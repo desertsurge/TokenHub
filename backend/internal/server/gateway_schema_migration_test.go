@@ -99,7 +99,7 @@ func TestGatewaySchemaHistoryRemainsForwardCompatible(t *testing.T) {
 	registry := SchemaMigrationRegistry()
 	historical := make([]dbschema.Migration, 0, len(registry)-1)
 	for _, migration := range registry {
-		if migration.Version < 16 {
+		if migration.Version < 15 {
 			historical = append(historical, migration)
 		}
 	}
@@ -134,8 +134,8 @@ func TestGatewaySchemaHistoryRemainsForwardCompatible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade historical ledger: %v", err)
 	}
-	if len(result.Applied) != 1 || result.Applied[0].Version != 16 {
-		t.Fatalf("applied migrations = %+v, want only version 16", result.Applied)
+	if len(result.Applied) != 3 || result.Applied[0].Version != 15 || result.Applied[1].Version != 16 || result.Applied[2].Version != 17 {
+		t.Fatalf("applied migrations = %+v, want versions 15, 16, and 17", result.Applied)
 	}
 	var indexCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_usage_records_project_created'").Scan(&indexCount); err != nil {

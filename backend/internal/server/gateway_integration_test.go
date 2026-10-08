@@ -1142,24 +1142,26 @@ func TestGatewayManagedUserKeyFollowsTenantAndPrincipalStatus(t *testing.T) {
 		"externalId": "membership_01", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "inactive",
 	}))
 	assertGatewayModelAccessKeyDisabled(t, store, created.APIKey)
-	assertGatewayModelAccessKeyActive(t, store, workloadKey.APIKey)
+	assertGatewayModelAccessKeyDisabled(t, store, workloadKey.APIKey)
 	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusDisabled)
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_member_reenabled", "tenant_member.updated", "tenant_member", "membership_01", "tenant_01", 3, map[string]interface{}{
 		"externalId": "membership_01", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "active",
 	}))
 	assertGatewayModelAccessKeyActive(t, store, created.APIKey)
+	assertGatewayModelAccessKeyActive(t, store, workloadKey.APIKey)
 	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusActive)
 
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_member_removed", "tenant_member.removed", "tenant_member", "membership_01", "tenant_01", 4, map[string]interface{}{
 		"externalId": "membership_01", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "removed",
 	}))
 	assertGatewayModelAccessKeyRevoked(t, store, created)
-	assertGatewayModelAccessKeyActive(t, store, workloadKey.APIKey)
+	assertGatewayModelAccessKeyDisabled(t, store, workloadKey.APIKey)
 	assertGatewayModelAccessKeyListStatus(t, store, created.Data.ID, StatusRevoked)
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_member_readded", "tenant_member.added", "tenant_member", "membership_01", "tenant_01", 5, map[string]interface{}{
 		"externalId": "membership_01", "principalExternalId": "user_01", "name": "Zhang Chen", "status": "active",
 	}))
 	assertGatewayModelAccessKeyDisabled(t, store, created.APIKey)
+	assertGatewayModelAccessKeyActive(t, store, workloadKey.APIKey)
 
 	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_tenant_deleted", "tenant.deleted", "tenant", "tenant_01", "tenant_01", 4, map[string]interface{}{
 		"externalId": "tenant_01", "name": "Enterprise One", "status": "deleted",
