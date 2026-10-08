@@ -134,8 +134,8 @@ func TestGatewaySchemaHistoryRemainsForwardCompatible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade historical ledger: %v", err)
 	}
-	if len(result.Applied) != 3 || result.Applied[0].Version != 15 || result.Applied[1].Version != 16 || result.Applied[2].Version != 17 {
-		t.Fatalf("applied migrations = %+v, want versions 15, 16, and 17", result.Applied)
+	if len(result.Applied) != 4 || result.Applied[0].Version != 15 || result.Applied[1].Version != 16 || result.Applied[2].Version != 17 || result.Applied[3].Version != 18 {
+		t.Fatalf("applied migrations = %+v, want versions 15 through 18", result.Applied)
 	}
 	var indexCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_usage_records_project_created'").Scan(&indexCount); err != nil {

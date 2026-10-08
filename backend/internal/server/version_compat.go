@@ -20,14 +20,14 @@ type CompatibilityManifest struct {
 
 // CurrentCompatibilityManifest is this release's declaration. This release
 // requires every registered expansion through the tenant-scoped Gateway
-// principal email projection and existing user links.
+// principal email projection, existing user links, and OAuth nonce schema.
 // Startup upgrades older databases before requests are admitted; the runtime
 // does not silently skip these schema changes.
 func CurrentCompatibilityManifest() CompatibilityManifest {
 	return CompatibilityManifest{
-		TargetVersion: 17,
-		MinCompatible: 17,
-		MaxCompatible: 17,
+		TargetVersion: 18,
+		MinCompatible: 18,
+		MaxCompatible: 18,
 	}
 }
 

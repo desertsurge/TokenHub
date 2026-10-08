@@ -148,6 +148,15 @@
       "checksum": "tokenhub-schema-gateway-existing-user-link-v1",
       "lock_timeout_seconds": 30,
       "statement_budget": 3
+    },
+    {
+      "version": 18,
+      "name": "normalize-admin-oauth-nonce-nullability",
+      "phase": "expand",
+      "dialect": "",
+      "checksum": "tokenhub-schema-admin-oauth-nonce-nullability-v1",
+      "lock_timeout_seconds": 30,
+      "statement_budget": 8
     }
   ]
 }

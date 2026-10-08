@@ -24,6 +24,7 @@ func TestGatewayIntegrationMigrationIsRegistered(t *testing.T) {
 		15: "repair-gateway-control-plane-schema",
 		16: "add-gateway-principal-email",
 		17: "add-gateway-existing-user-link",
+		18: "normalize-admin-oauth-nonce-nullability",
 	} {
 		if registered[version] != name {
 			t.Errorf("migration version %d = %q, want %q", version, registered[version], name)
