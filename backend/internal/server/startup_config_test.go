@@ -10,12 +10,13 @@ import (
 func TestPrepareForStartupGeneratesPersistentSecretForNewSQLite(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "tokenhub.db")
 	config := Config{
-		Environment:            "prod",
-		AdminToken:             "dev_admin_token",
-		IntegrationToken:       strings.Repeat("i", 32),
-		BootstrapAdminPassword: "admin123456",
-		SecretKey:              "change-me-tokenhub-secret-key",
-		DatabaseURL:            "sqlite://" + databasePath,
+		Environment:              "prod",
+		AdminToken:               "dev_admin_token",
+		IntegrationToken:         strings.Repeat("i", 32),
+		IntegrationContextSecret: strings.Repeat("c", 32),
+		BootstrapAdminPassword:   "admin123456",
+		SecretKey:                "change-me-tokenhub-secret-key",
+		DatabaseURL:              "sqlite://" + databasePath,
 	}
 
 	prepared, err := config.PrepareForStartup()

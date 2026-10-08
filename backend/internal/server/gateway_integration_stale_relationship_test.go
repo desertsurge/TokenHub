@@ -89,7 +89,7 @@ func TestGatewayRelationshipStaleReplayUsesPersistedDependencies(t *testing.T) {
 			gatewayIntegrationEvent("evt_stale_workload_tenant", "tenant.created", "tenant", "tenant_stale_workload", "tenant_stale_workload", 1, map[string]interface{}{"externalId": "tenant_stale_workload", "name": "Stale workload tenant"}),
 			gatewayIntegrationEvent("evt_stale_workload_project_old", "project.created", "project", "project_old", "tenant_stale_workload", 1, map[string]interface{}{"externalId": "project_old", "name": "Old project"}),
 			gatewayIntegrationEvent("evt_stale_workload_project_current", "project.created", "project", "project_current", "tenant_stale_workload", 1, map[string]interface{}{"externalId": "project_current", "name": "Current project"}),
-			gatewayIntegrationEvent("evt_stale_workload_v1", "workload.created", "workload", "workload_stale", "tenant_stale_workload", 1, map[string]interface{}{"externalId": "workload_stale", "projectExternalId": "project_old", "name": "Stale workload"}),
+			gatewayIntegrationEvent("evt_stale_workload_v1", "workload.created", "workload", "workload_stale", "tenant_stale_workload", 1, map[string]interface{}{"externalId": "workload_stale", "projectExternalId": "project_old", "name": "Stale workload", "workloadType": "application"}),
 			gatewayIntegrationEvent("evt_stale_workload_v2", "workload.updated", "workload", "workload_stale", "tenant_stale_workload", 2, map[string]interface{}{"externalId": "workload_stale", "projectExternalId": "project_current", "name": "Current workload"}),
 		} {
 			applyGatewayIntegrationEventForTest(t, app, event)
@@ -98,7 +98,7 @@ func TestGatewayRelationshipStaleReplayUsesPersistedDependencies(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", gatewayIntegrationEvent("evt_stale_workload_replay", "workload.created", "workload", "workload_stale", "tenant_stale_workload", 1, map[string]interface{}{"externalId": "workload_stale", "projectExternalId": "project_old", "name": "Stale workload"}), "integration_token")
+		response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", gatewayIntegrationEvent("evt_stale_workload_replay", "workload.created", "workload", "workload_stale", "tenant_stale_workload", 1, map[string]interface{}{"externalId": "workload_stale", "projectExternalId": "project_old", "name": "Stale workload", "workloadType": "application"}), "integration_token")
 		if response.Code != http.StatusOK || !jsonBodyHasField(response.Body, "outcome", "ignored_stale") {
 			t.Fatalf("stale workload replay = %d %s", response.Code, response.Body)
 		}
@@ -127,7 +127,7 @@ func TestGatewayOrganizationBindingHandlesSoftDeletedPrincipals(t *testing.T) {
 	} {
 		applyGatewayIntegrationEventForTest(t, app, event)
 	}
-	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_soft_deleted_binding_principal_removed", "tenant_member.deleted", "tenant_member", "member_soft_deleted_old", "tenant_soft_deleted_binding", 2, map[string]interface{}{
+	applyGatewayIntegrationEventForTest(t, app, gatewayIntegrationEvent("evt_soft_deleted_binding_principal_removed", "tenant_member.removed", "tenant_member", "member_soft_deleted_old", "tenant_soft_deleted_binding", 2, map[string]interface{}{
 		"externalId": "member_soft_deleted_old", "principalExternalId": "principal_soft_deleted_old", "status": integrationStatusDeleted,
 	}))
 

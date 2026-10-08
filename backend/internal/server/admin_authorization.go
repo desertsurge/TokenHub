@@ -988,7 +988,8 @@ func (s *Server) filterQuotaPoliciesForTeamLeader(user AdminUser, resources []Ad
 					} else {
 						targetSet, cached := targetTenants[target.ID]
 						if !cached {
-							targetSet, err := s.adminUserTenantSet(target.ID)
+							var err error
+							targetSet, err = s.adminUserTenantSet(target.ID)
 							if err != nil {
 								log.Printf("[tokenhub] failed to resolve quota target tenant scope user_id=%s: %v", target.ID, err)
 								targetSet = map[string]bool{}

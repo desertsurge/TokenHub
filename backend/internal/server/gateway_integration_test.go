@@ -957,13 +957,21 @@ func TestGatewayManagedProjectsAndKeysAreReadOnlyToLocalManagement(t *testing.T)
 	app := NewWithConfig(store, Config{AdminToken: "admin_token", IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
 	seedGatewayModelAccessKeyScope(t, app)
 	created := createGatewayModelAccessKeyForTest(t, app, "request_read_only", "user", "user_01")
+	admin, err := store.CreateAdminUser(AdminUser{Username: "read-only-admin", Email: "read-only-admin@example.test", Role: "admin", Status: StatusActive}, "ReadOnlyAdmin123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, session, err := store.CreateAdminSession(admin.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := store.UpdateProject(created.Data.ProjectID, Project{Name: "Local override"}); AsHTTPError(err).Code != "integration_managed_project_read_only" {
 		t.Fatalf("expected managed project update rejection, got %v", err)
 	}
 	override := doJSON(t, app, http.MethodPost, "/api/admin/projects", map[string]interface{}{
 		"id": created.Data.ProjectID, "name": "Local create override", "status": StatusActive,
-	}, "admin_token")
+	}, session.Token)
 	if override.Code != http.StatusConflict || !jsonBodyHasCode(override.Body, "integration_managed_project_read_only") {
 		t.Fatalf("expected managed project create rejection, got %d: %s", override.Code, override.Body)
 	}

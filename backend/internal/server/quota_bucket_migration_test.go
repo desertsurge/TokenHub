@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -30,6 +31,13 @@ PRIMARY KEY (key_id, scope, bucket)
 		t.Fatal(err)
 	}
 	if err := ensureQuotaBucketAttributionSchema(store.db, "sqlite"); err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := store.db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := addQuotaBucketTenantScope(context.Background(), directSQLMigrationExecer{DB: sqlDB}); err != nil {
 		t.Fatal(err)
 	}
 	var keyRow, userRow QuotaBucket
@@ -147,6 +155,7 @@ func TestBackfillAsyncJobTenantAttribution(t *testing.T) {
 	if response.TenantExternalID != "tenant-job" {
 		t.Fatalf("response job tenant = %q, want tenant-job", response.TenantExternalID)
 	}
+	response = ResponseJob{}
 	if err := store.db.First(&response, "id = ?", "resp_job_unknown").Error; err != nil {
 		t.Fatal(err)
 	}

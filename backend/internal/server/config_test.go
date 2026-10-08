@@ -246,9 +246,10 @@ func TestProductionConfigRejectsReusedAdminAndIntegrationTokens(t *testing.T) {
 
 func TestProductionConfigAcceptsDisabledOptionalBootstrapCredentials(t *testing.T) {
 	config := Config{
-		Environment:      "production",
-		IntegrationToken: strings.Repeat("i", 32),
-		SecretKey:        strings.Repeat("s", 32),
+		Environment:              "production",
+		IntegrationToken:         strings.Repeat("i", 32),
+		IntegrationContextSecret: strings.Repeat("c", 32),
+		SecretKey:                strings.Repeat("s", 32),
 	}
 	if err := config.ValidateForStartup(); err != nil {
 		t.Fatalf("expected optional bootstrap credentials to be disabled: %v", err)

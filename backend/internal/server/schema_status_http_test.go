@@ -46,7 +46,7 @@ func TestAdminSchemaStatusEndpoint(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if !payload.Ready || payload.SchemaVersion != 16 {
+	if !payload.Ready || payload.SchemaVersion != 17 {
 		t.Fatalf("expected ready expanded status, got %+v", payload)
 	}
 	if payload.Compatibility.TargetVersion != 17 || payload.Compatibility.MinCompatible != 17 || payload.Compatibility.MaxCompatible != 17 {

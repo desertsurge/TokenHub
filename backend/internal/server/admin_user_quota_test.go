@@ -201,6 +201,7 @@ func TestAdminUserQuotaRequiresAndValidatesTenantContext(t *testing.T) {
 
 func TestTeamLeaderCannotManageUserQuotaOutsideSharedTenant(t *testing.T) {
 	store := NewMemoryStore()
+	store.CreateResource("teams", AdminResource{ID: "team_quota", Name: "Quota team", Status: StatusActive})
 	leader, err := store.CreateAdminUser(AdminUser{ID: "usr_quota_leader", Username: "quota-leader", Name: "Quota Leader", Email: "quota-leader@example.test", Role: "team_leader", TeamID: "team_quota", Status: StatusActive}, "QuotaLeader123456!")
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +210,6 @@ func TestTeamLeaderCannotManageUserQuotaOutsideSharedTenant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.CreateResource("teams", AdminResource{ID: "team_quota", Name: "Quota team", Status: StatusActive})
 	for _, item := range []struct {
 		tenantID  string
 		principal string
@@ -242,7 +242,36 @@ func TestTeamLeaderCannotManageUserQuotaOutsideSharedTenant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := New(store).Handler()
+	if !userHasTeam(target, leader.TeamID) {
+		t.Fatalf("quota target is not in the leader's team: leader=%+v target=%+v", leader, target)
+	}
+	if tenants, err := store.ListAdminQuotaTenants(leader.ID); err != nil || len(tenants) != 1 || tenants[0].ID != "tenant-shared" {
+		t.Fatalf("leader tenant fixture = %+v, err=%v", tenants, err)
+	}
+	if tenants, err := store.ListAdminQuotaTenants(target.ID); err != nil || len(tenants) != 1 || tenants[0].ID != "tenant-shared" {
+		t.Fatalf("target tenant fixture = %+v, err=%v", tenants, err)
+	}
+	if resources := store.ListResources("quota-policies"); len(resources) != 2 {
+		t.Fatalf("quota fixtures = %+v", resources)
+	}
+	sessionUser, ok := store.ValidateAdminSession(session.Token)
+	if !ok || sessionUser.TeamID != "team_quota" {
+		t.Fatalf("leader session team = %+v, valid=%v", sessionUser, ok)
+	}
+	server := New(store)
+	storedTarget, found := server.findAdminUser(target.ID)
+	if !found || !userHasTeam(storedTarget, sessionUser.TeamID) {
+		t.Fatalf("stored target team = %+v, found=%v", storedTarget, found)
+	}
+	actorSet, actorErr := server.adminUserTenantSet(sessionUser.ID)
+	targetSet, targetErr := server.adminUserTenantSet(storedTarget.ID)
+	if actorErr != nil || targetErr != nil || !actorSet["tenant-shared"] || !targetSet["tenant-shared"] {
+		t.Fatalf("quota tenant sets: actor=%+v (%v), target=%+v (%v)", actorSet, actorErr, targetSet, targetErr)
+	}
+	if filtered := server.filterQuotaPoliciesForTeamLeader(sessionUser, store.ListResources("quota-policies")); len(filtered) != 1 {
+		t.Fatalf("direct quota visibility = %+v, actor=%+v", filtered, sessionUser)
+	}
+	app := server.Handler()
 	listed := doJSON(t, app, http.MethodGet, "/api/admin/resources/quota-policies", nil, session.Token)
 	if listed.Code != http.StatusOK || !strings.Contains(listed.Body, "quota-shared-tenant") || strings.Contains(listed.Body, "quota-foreign-tenant") {
 		t.Fatalf("team leader quota listing crossed tenant boundary: %d %s", listed.Code, listed.Body)
