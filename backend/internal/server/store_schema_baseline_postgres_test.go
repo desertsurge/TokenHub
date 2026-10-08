@@ -5,7 +5,6 @@ package server
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -59,53 +58,16 @@ func withSearchPath(pgURL, schema string) (string, error) {
 	return parsed.String(), nil
 }
 
-// TestPostgresBaselineSQLIsCurrent keeps the frozen PostgreSQL baseline in
-// sync with the compiled model set and proves a schema created from it
-// matches the AutoMigrate reference semantically. Regenerate with
-// UPDATE_BASELINE=1, TEST_POSTGRES_URL set, and the integration tag.
-func TestPostgresBaselineSQLIsCurrent(t *testing.T) {
+// TestPostgresBaselineUpgradesToCurrentSchema verifies that the immutable
+// baseline reaches the current schema through the registered migrations.
+func TestPostgresBaselineUpgradesToCurrentSchema(t *testing.T) {
 	admin, pgURL := openPostgresAdmin(t)
 	ctx := context.Background()
-	generated, err := exportPostgresBaselineStatements(ctx, admin, pgURL)
+	baseline, err := dbschema.PostgresBaselineStatements()
 	if err != nil {
-		t.Fatalf("export baseline statements: %v", err)
-	}
-	baselinePath := "../dbschema/migrations/postgres/000001_baseline.json"
-	if os.Getenv(baselineUpdateEnv) == "1" {
-		payload := struct {
-			Version    int64    `json:"version"`
-			Dialect    string   `json:"dialect"`
-			Statements []string `json:"statements"`
-		}{Version: dbschema.BaselineVersion, Dialect: "postgres", Statements: generated}
-		encoded, err := json.MarshalIndent(payload, "", "  ")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(baselinePath, append(encoded, '\n'), 0o644); err != nil {
-			t.Fatalf("rewrite baseline: %v", err)
-		}
-		t.Logf("baseline rewritten: %s", baselinePath)
-		return
-	}
-	current, err := dbschema.PostgresBaselineStatements()
-	if err != nil {
-		t.Fatalf("frozen baseline unreadable (regenerate with %s=1): %v", baselineUpdateEnv, err)
-	}
-	if len(current) == 0 {
-		t.Fatalf("frozen baseline is empty; regenerate with %s=1", baselineUpdateEnv)
-	}
-	if len(generated) != len(current) {
-		t.Fatalf("frozen PostgreSQL baseline is stale (%d statements, expected %d); regenerate with %s=1",
-			len(current), len(generated), baselineUpdateEnv)
-	}
-	for i := range generated {
-		if generated[i] != current[i] {
-			t.Fatalf("frozen PostgreSQL baseline is stale at statement %d; regenerate with %s=1", i, baselineUpdateEnv)
-		}
+		t.Fatal(err)
 	}
 
-	// Replay the frozen statements into a scratch schema and compare it
-	// semantically with an AutoMigrate reference schema.
 	replaySchema := createPostgresSchema(t, admin, "tokenhub_pg_replay_")
 	replayDSN, err := withSearchPath(pgURL, replaySchema)
 	if err != nil {
@@ -116,10 +78,17 @@ func TestPostgresBaselineSQLIsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer replay.Close()
-	for _, statement := range current {
+	for _, statement := range baseline {
 		if _, err := replay.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("execute baseline statement %q: %v", statement, err)
 		}
+	}
+	runner, err := dbschema.NewRunner(replay, dbschema.DialectPostgres, SchemaMigrationRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Adopt(ctx, nil); err != nil {
+		t.Fatalf("upgrade frozen baseline: %v", err)
 	}
 
 	referenceSchema := createPostgresSchema(t, admin, "tokenhub_pg_ref_")
@@ -139,6 +108,9 @@ func TestPostgresBaselineSQLIsCurrent(t *testing.T) {
 	if err := migrateSchemaObjects(referenceGorm, "postgres"); err != nil {
 		t.Fatalf("build reference schema: %v", err)
 	}
+	if err := expandSchemaReference(ctx, referenceSQL, "postgres"); err != nil {
+		t.Fatalf("expand reference schema: %v", err)
+	}
 
 	referenceSet, err := dbschema.Introspect(ctx, referenceSQL, dbschema.DialectPostgres, referenceSchema)
 	if err != nil {
@@ -149,7 +121,7 @@ func TestPostgresBaselineSQLIsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if violations := dbschema.CompareObjects(referenceSet, replaySet); len(violations) > 0 {
-		t.Fatalf("replayed schema drifted from the AutoMigrate reference: %s", dbschema.FormatViolations(violations))
+		t.Fatalf("upgraded baseline differs from current schema: %s", dbschema.FormatViolations(violations))
 	}
 }
 
