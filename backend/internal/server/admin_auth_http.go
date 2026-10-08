@@ -827,7 +827,7 @@ func (s *Server) upsertOAuthAdminUser(provider AdminResource, claims map[string]
 	}
 	users := s.store.ListAdminUsers()
 	if existing, ok := findOAuthAdminUserByEmail(users, email); ok {
-		if s.store.IsGatewayManagedAdminUser(existing.ID) {
+		if s.store.IsGatewayAssociatedAdminUser(existing.ID) {
 			return AdminUser{}, NewHTTPError(http.StatusConflict, "gateway_identity_conflict", "Managed gateway user requires its configured OIDC identity provider")
 		}
 		if existing.Status != StatusActive {

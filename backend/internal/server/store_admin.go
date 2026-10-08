@@ -459,7 +459,7 @@ func updateAdminUser(db *gorm.DB, id string, patch AdminUser, password string) (
 func (s *GormStore) DeleteAdminUser(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.IsGatewayManagedAdminUser(id) {
+	if s.IsGatewayAssociatedAdminUser(id) {
 		return NewHTTPError(409, "gateway_managed_user_read_only", "Managed gateway user is read-only")
 	}
 
@@ -584,7 +584,7 @@ func (s *GormStore) resetAdminUserPassword(token string, password string, passwo
 			return notFound(err, "admin_user_not_found", "Admin user not found")
 		}
 		var managedCount int64
-		if err := tx.Model(&GatewayManagedUser{}).Where("admin_user_id = ?", user.ID).Count(&managedCount).Error; err != nil {
+		if err := tx.Model(&GatewayManagedUser{}).Where("admin_user_id = ? AND linked_existing = ?", user.ID, false).Count(&managedCount).Error; err != nil {
 			return err
 		}
 		if managedCount > 0 {

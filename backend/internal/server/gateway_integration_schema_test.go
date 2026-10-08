@@ -23,10 +23,41 @@ func TestGatewayIntegrationMigrationIsRegistered(t *testing.T) {
 		12: "add-gateway-organization-primary",
 		15: "repair-gateway-control-plane-schema",
 		16: "add-gateway-principal-email",
+		17: "add-gateway-existing-user-link",
 	} {
 		if registered[version] != name {
 			t.Errorf("migration version %d = %q, want %q", version, registered[version], name)
 		}
+	}
+}
+
+func TestGatewayExistingUserLinkMigrationUpgradesLegacySQLiteSchema(t *testing.T) {
+	database, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "legacy-managed-user.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if _, err := database.Exec(`CREATE TABLE gateway_managed_users (external_principal_id text PRIMARY KEY, admin_user_id text NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`INSERT INTO gateway_managed_users (external_principal_id, admin_user_id) VALUES ('legacy-principal', 'legacy-user')`); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := gatewayExistingUserLinkMigration().Go(context.Background(), directSQLMigrationExecer{DB: database}); err != nil {
+			t.Fatalf("apply existing user link migration attempt %d: %v", attempt+1, err)
+		}
+	}
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('gateway_managed_users') WHERE name = 'linked_existing' AND "notnull" = 1`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("gateway linked existing column count = %d, want 1", count)
+	}
+	var linkedExisting bool
+	if err := database.QueryRow(`SELECT linked_existing FROM gateway_managed_users WHERE external_principal_id = 'legacy-principal'`).Scan(&linkedExisting); err != nil || linkedExisting {
+		t.Fatalf("legacy managed user ownership changed: linked=%t err=%v", linkedExisting, err)
 	}
 }
 

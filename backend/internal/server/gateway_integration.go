@@ -385,7 +385,7 @@ func (s *GormStore) ApplyGatewayIntegrationEvent(event GatewayIntegrationEvent) 
 			return err
 		}
 
-		entityID, entityType, appliedVersion, outcome, err := applyGatewayProjection(tx, event, now)
+		entityID, entityType, appliedVersion, outcome, err := s.applyGatewayProjection(tx, event, now)
 		if err != nil {
 			return err
 		}
@@ -728,14 +728,14 @@ func gatewayIntegrationEventDigest(event GatewayIntegrationEvent) (string, error
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func applyGatewayProjection(tx *gorm.DB, event GatewayIntegrationEvent, now time.Time) (string, string, int64, string, error) {
+func (s *GormStore) applyGatewayProjection(tx *gorm.DB, event GatewayIntegrationEvent, now time.Time) (string, string, int64, string, error) {
 	switch event.AggregateType {
 	case "tenant":
 		return applyGatewayTenant(tx, event, now)
 	case "organization":
 		return applyGatewayOrganization(tx, event, now)
 	case "tenant_member":
-		return applyGatewayPrincipal(tx, event, now)
+		return s.applyGatewayPrincipal(tx, event, now)
 	case "organization_member":
 		return applyGatewayOrganizationBinding(tx, event, now)
 	case "project":
@@ -914,7 +914,7 @@ func applyGatewayOrganization(tx *gorm.DB, event GatewayIntegrationEvent, now ti
 	return item.ID, "organization", item.Version, "applied", nil
 }
 
-func applyGatewayPrincipal(tx *gorm.DB, event GatewayIntegrationEvent, now time.Time) (string, string, int64, string, error) {
+func (s *GormStore) applyGatewayPrincipal(tx *gorm.DB, event GatewayIntegrationEvent, now time.Time) (string, string, int64, string, error) {
 	tenant, err := requireGatewayTenant(tx, event.TenantID)
 	if err != nil {
 		return "", "principal", 0, "", err
@@ -947,7 +947,7 @@ func applyGatewayPrincipal(tx *gorm.DB, event GatewayIntegrationEvent, now time.
 					}
 				}
 				if email != "" {
-					if err := syncGatewayManagedUser(tx, item, event); err != nil {
+					if err := s.syncGatewayManagedUser(tx, item, event); err != nil {
 						return "", "principal", 0, "", err
 					}
 					managedUserReconciled = true
@@ -987,7 +987,7 @@ func applyGatewayPrincipal(tx *gorm.DB, event GatewayIntegrationEvent, now time.
 	if err := tx.Unscoped().Save(&item).Error; err != nil {
 		return "", "principal", 0, "", err
 	}
-	if err := syncGatewayManagedUser(tx, item, event); err != nil {
+	if err := s.syncGatewayManagedUser(tx, item, event); err != nil {
 		return "", "principal", 0, "", err
 	}
 	if item.DeletedAt != nil {

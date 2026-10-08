@@ -49,7 +49,7 @@ func TestAdminSchemaStatusEndpoint(t *testing.T) {
 	if !payload.Ready || payload.SchemaVersion != 16 {
 		t.Fatalf("expected ready expanded status, got %+v", payload)
 	}
-	if payload.Compatibility.TargetVersion != 16 || payload.Compatibility.MinCompatible != 16 || payload.Compatibility.MaxCompatible != 16 {
+	if payload.Compatibility.TargetVersion != 17 || payload.Compatibility.MinCompatible != 17 || payload.Compatibility.MaxCompatible != 17 {
 		t.Fatalf("unexpected compatibility manifest: %+v", payload.Compatibility)
 	}
 	if len(payload.Instances) != 1 || payload.Instances[0]["release"] != "v0.5.0-schema-test" {

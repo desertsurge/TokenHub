@@ -108,8 +108,9 @@ func refreshGatewayManagedUserTeams(tx *gorm.DB, externalPrincipalID string) err
 	if user.TeamID == primary && slices.Equal(user.TeamIDs, teamIDs) {
 		return nil
 	}
-	user.TeamID, user.TeamIDs, user.UpdatedAt = primary, teamIDs, now
-	return tx.Save(&user).Error
+	return tx.Model(&AdminUser{}).Where("id = ?", user.ID).Updates(map[string]any{
+		"team_id": primary, "team_ids": teamIDs, "updated_at": now,
+	}).Error
 }
 
 func refreshGatewayOrganizationTeamUsers(tx *gorm.DB, organizationID string) error {

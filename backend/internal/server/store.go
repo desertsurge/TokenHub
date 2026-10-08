@@ -119,6 +119,7 @@ type Store interface {
 	ReconciliationStore
 	ApplyGatewayIntegrationEvent(event GatewayIntegrationEvent) (GatewayIntegrationApplyResult, error)
 	IsGatewayManagedAdminUser(userID string) bool
+	IsGatewayAssociatedAdminUser(userID string) bool
 	ResolveGatewayManagedQuotaUser(tenantExternalID, principalExternalID string) (AdminUser, error)
 	ResolveAdminQuotaTenant(userID string, requestedTenantID string) (string, error)
 	ListAdminQuotaTenants(userID string) ([]UserQuotaTenant, error)

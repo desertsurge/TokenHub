@@ -17,6 +17,7 @@ import (
 type GatewayManagedUser struct {
 	ExternalPrincipalID string `gorm:"primaryKey"`
 	AdminUserID         string
+	LinkedExisting      bool   `gorm:"not null;default:false"`
 	OIDCIssuer          string `gorm:"column:oidc_issuer"`
 	OIDCSubject         string `gorm:"column:oidc_subject"`
 	CreatedAt           time.Time
@@ -31,6 +32,30 @@ func gatewayManagedUserMigration() dbschema.Migration {
 		ChecksumOverride: "tokenhub-schema-gateway-managed-users-v1",
 		StatementBudget:  4,
 	}
+}
+
+func gatewayExistingUserLinkMigration() dbschema.Migration {
+	return dbschema.Migration{
+		Version:          17,
+		Name:             "add-gateway-existing-user-link",
+		Go:               addGatewayExistingUserLink,
+		ChecksumOverride: "tokenhub-schema-gateway-existing-user-link-v1",
+		StatementBudget:  3,
+	}
+}
+
+func addGatewayExistingUserLink(ctx context.Context, db dbschema.MigrationExecer) error {
+	var schema string
+	if err := db.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err == nil {
+		_, err := db.ExecContext(ctx, `ALTER TABLE gateway_managed_users ADD COLUMN IF NOT EXISTS linked_existing boolean NOT NULL DEFAULT false`)
+		return err
+	}
+	exists, err := sqliteColumnExists(ctx, db, "gateway_managed_users", "linked_existing")
+	if err != nil || exists {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `ALTER TABLE "gateway_managed_users" ADD COLUMN "linked_existing" boolean NOT NULL DEFAULT false`)
+	return err
 }
 
 func addGatewayManagedUsers(ctx context.Context, db dbschema.MigrationExecer) error {
@@ -68,36 +93,67 @@ func gatewayManagedSyntheticEmail(principalID string) string {
 	return "gateway_" + hex.EncodeToString(digest[:16]) + "@users.tokenhub.invalid"
 }
 
-func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event GatewayIntegrationEvent) error {
+func (s *GormStore) syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event GatewayIntegrationEvent) error {
 	principalID := principal.ExternalPrincipalID
 	email := strings.TrimSpace(payloadString(event.Payload, "email"))
+	if err := s.lockScopeForUpdate(tx, "gateway_managed_user", principalID); err != nil {
+		return err
+	}
+	if email != "" {
+		emailDigest := sha256.Sum256([]byte(strings.ToLower(email)))
+		if err := s.lockScopeForUpdate(tx, "gateway_user_email", hex.EncodeToString(emailDigest[:])); err != nil {
+			return err
+		}
+	}
 	var managed GatewayManagedUser
 	err := tx.First(&managed, "external_principal_id = ?", principalID).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		hasEmail := email != ""
 		if email == "" {
 			email = gatewayManagedSyntheticEmail(principalID)
 		}
-		var conflict int64
-		if err := tx.Model(&AdminUser{}).Where("lower(email) = lower(?) OR username = ?", email, gatewayManagedUsername(principalID)).Count(&conflict).Error; err != nil {
+		var emailMatches []AdminUser
+		if err := tx.Where("lower(email) = lower(?)", email).Limit(2).Find(&emailMatches).Error; err != nil {
 			return err
 		}
-		if conflict > 0 {
-			return NewHTTPError(http.StatusConflict, "gateway_user_conflict", "Gateway user email or username belongs to another account")
+		if len(emailMatches) > 1 {
+			return NewHTTPError(http.StatusConflict, "gateway_user_conflict", "Gateway user email matches multiple accounts")
 		}
-		user, err := createAdminUser(tx, AdminUser{
-			Username: gatewayManagedUsername(principalID),
-			Name:     principal.DisplayName,
-			Email:    email,
-			Role:     "user",
-			Status:   StatusActive,
-		}, GenerateAdminSessionToken())
-		if err != nil {
-			return err
+		if len(emailMatches) == 1 {
+			if !hasEmail {
+				return NewHTTPError(http.StatusConflict, "gateway_user_conflict", "Gateway user synthetic email belongs to another account")
+			}
+			existing := emailMatches[0]
+			var linked GatewayManagedUser
+			if err := tx.First(&linked, "admin_user_id = ?", existing.ID).Error; err == nil {
+				return NewHTTPError(http.StatusConflict, "gateway_user_conflict", "Gateway user email belongs to another principal")
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			managed = GatewayManagedUser{ExternalPrincipalID: principalID, AdminUserID: existing.ID, LinkedExisting: true}
+		} else {
+			var usernameConflict int64
+			if err := tx.Model(&AdminUser{}).Where("username = ?", gatewayManagedUsername(principalID)).Count(&usernameConflict).Error; err != nil {
+				return err
+			}
+			if usernameConflict > 0 {
+				return NewHTTPError(http.StatusConflict, "gateway_user_conflict", "Gateway user username belongs to another account")
+			}
+			user, err := createAdminUser(tx, AdminUser{
+				Username: gatewayManagedUsername(principalID),
+				Name:     principal.DisplayName,
+				Email:    email,
+				Role:     "user",
+				Status:   StatusActive,
+			}, GenerateAdminSessionToken())
+			if err != nil {
+				return err
+			}
+			managed = GatewayManagedUser{ExternalPrincipalID: principalID, AdminUserID: user.ID}
 		}
-		managed = GatewayManagedUser{ExternalPrincipalID: principalID, AdminUserID: user.ID}
 		if err := tx.Create(&managed).Error; err != nil {
 			return err
 		}
@@ -111,7 +167,7 @@ func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event Gatew
 	if err := tx.First(&user, "id = ?", managed.AdminUserID).Error; err != nil {
 		return NewHTTPError(http.StatusConflict, "gateway_user_missing", "Managed gateway user is missing")
 	}
-	if profileIsCurrent && email != "" && !strings.EqualFold(user.Email, email) {
+	if !managed.LinkedExisting && profileIsCurrent && email != "" && !strings.EqualFold(user.Email, email) {
 		var conflict int64
 		if err := tx.Model(&AdminUser{}).Where("id <> ? AND lower(email) = lower(?)", user.ID, email).Count(&conflict).Error; err != nil {
 			return err
@@ -121,20 +177,22 @@ func syncGatewayManagedUser(tx *gorm.DB, principal GatewayPrincipal, event Gatew
 		}
 		user.Email = email
 	}
-	if profileIsCurrent && principal.DisplayName != "" {
+	if !managed.LinkedExisting && profileIsCurrent && principal.DisplayName != "" {
 		user.Name = principal.DisplayName
 	}
 	active, err := gatewayManagedUserActive(tx, principalID)
 	if err != nil {
 		return err
 	}
-	user.Status = StatusDisabled
-	if active {
-		user.Status = StatusActive
-	}
-	user.UpdatedAt = time.Now().UTC()
-	if err := tx.Save(&user).Error; err != nil {
-		return err
+	if !managed.LinkedExisting {
+		user.Status = StatusDisabled
+		if active {
+			user.Status = StatusActive
+		}
+		user.UpdatedAt = time.Now().UTC()
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
 	}
 	if err := syncGatewayServingProjectsForPrincipal(tx, principal); err != nil {
 		return err
@@ -159,13 +217,15 @@ func refreshGatewayManagedPrincipalState(tx *gorm.DB, principal GatewayPrincipal
 	if err != nil {
 		return err
 	}
-	user.Status = StatusDisabled
-	if active {
-		user.Status = StatusActive
-	}
-	user.UpdatedAt = time.Now().UTC()
-	if err := tx.Save(&user).Error; err != nil {
-		return err
+	if !managed.LinkedExisting {
+		user.Status = StatusDisabled
+		if active {
+			user.Status = StatusActive
+		}
+		user.UpdatedAt = time.Now().UTC()
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
 	}
 	if err := syncGatewayServingProjectsForPrincipal(tx, principal); err != nil {
 		return err
@@ -224,9 +284,11 @@ func refreshGatewayManagedTenantUsers(tx *gorm.DB, tenantID string) error {
 		if active {
 			status = StatusActive
 		}
-		if err := tx.Model(&AdminUser{}).Where("id = ?", managed.AdminUserID).
-			Updates(map[string]any{"status": status, "updated_at": time.Now().UTC()}).Error; err != nil {
-			return err
+		if !managed.LinkedExisting {
+			if err := tx.Model(&AdminUser{}).Where("id = ?", managed.AdminUserID).
+				Updates(map[string]any{"status": status, "updated_at": time.Now().UTC()}).Error; err != nil {
+				return err
+			}
 		}
 		if err := refreshGatewayManagedUserTeams(tx, principal.ExternalPrincipalID); err != nil {
 			return err
@@ -236,6 +298,12 @@ func refreshGatewayManagedTenantUsers(tx *gorm.DB, tenantID string) error {
 }
 
 func (s *GormStore) IsGatewayManagedAdminUser(userID string) bool {
+	var count int64
+	err := s.db.Model(&GatewayManagedUser{}).Where("admin_user_id = ? AND linked_existing = ?", userID, false).Count(&count).Error
+	return err != nil || count > 0
+}
+
+func (s *GormStore) IsGatewayAssociatedAdminUser(userID string) bool {
 	var count int64
 	err := s.db.Model(&GatewayManagedUser{}).Where("admin_user_id = ?", userID).Count(&count).Error
 	return err != nil || count > 0

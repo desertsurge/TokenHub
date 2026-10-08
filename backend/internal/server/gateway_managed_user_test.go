@@ -2,9 +2,155 @@ package server
 
 import (
 	"net/http"
+	"sync"
 	"testing"
 	"time"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+func newGatewayManagedUserTestStore(t *testing.T) *GormStore {
+	t.Helper()
+	database, err := gorm.Open(sqlite.Open("file:"+NewID("managed_link")+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := database.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := migrateSchemaObjects(database, "sqlite"); err != nil {
+		t.Fatal(err)
+	}
+	if err := gatewayManagedUserMigration().Go(t.Context(), directSQLMigrationExecer{DB: sqlDB}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gatewayExistingUserLinkMigration().Go(t.Context(), directSQLMigrationExecer{DB: sqlDB}); err != nil {
+		t.Fatal(err)
+	}
+	return &GormStore{db: database, dbDriver: "sqlite", mu: &sync.Mutex{}}
+}
+
+func createGatewayManagedUserTestPrincipal(t *testing.T, store *GormStore, principalID string) GatewayPrincipal {
+	t.Helper()
+	tenant := GatewayTenant{ID: "tenant-" + principalID, ExternalTenantID: "tenant-" + principalID, Status: StatusActive}
+	principal := GatewayPrincipal{ID: "principal-" + principalID, TenantID: tenant.ID, ExternalPrincipalID: principalID, Status: StatusActive}
+	if err := store.db.Create(&tenant).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&principal).Error; err != nil {
+		t.Fatal(err)
+	}
+	return principal
+}
+
+func TestGatewayManagedUserLinksExistingAdminOnCurrentSchema(t *testing.T) {
+	store := newGatewayManagedUserTestStore(t)
+	database := store.db
+	admin, err := store.CreateAdminUser(AdminUser{Username: "existing-admin", Email: "admin@example.test", Role: "admin", Status: StatusActive}, "LocalPassword123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := GatewayTenant{ID: "tenant-local", ExternalTenantID: "tenant-local", Status: StatusActive}
+	principal := GatewayPrincipal{ID: "principal-local", TenantID: tenant.ID, ExternalPrincipalID: "aip-admin", DisplayName: "AIP name", Status: StatusActive}
+	if err := database.Create(&tenant).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Create(&principal).Error; err != nil {
+		t.Fatal(err)
+	}
+	event := GatewayIntegrationEvent{OccurredAt: time.Now().UTC(), Payload: map[string]interface{}{"email": "ADMIN@example.test"}}
+	if err := database.Transaction(func(tx *gorm.DB) error { return store.syncGatewayManagedUser(tx, principal, event) }); err != nil {
+		t.Fatal(err)
+	}
+	var managed GatewayManagedUser
+	if err := database.First(&managed, "external_principal_id = ?", principal.ExternalPrincipalID).Error; err != nil || managed.AdminUserID != admin.ID || !managed.LinkedExisting {
+		t.Fatalf("existing admin link = %+v, err = %v", managed, err)
+	}
+	if _, _, err := store.AuthenticateAdminUser(admin.Email, "LocalPassword123!", time.Hour); err != nil {
+		t.Fatalf("local login failed after link: %v", err)
+	}
+	server := NewWithConfig(store, Config{SecretKey: "test_secret"})
+	if _, err := server.upsertOAuthAdminUser(AdminResource{}, map[string]any{"email": admin.Email}); AsHTTPError(err).Code != "gateway_identity_conflict" {
+		t.Fatalf("unmanaged OAuth adopted linked admin: %v", err)
+	}
+	if _, err := store.UpdateAdminUser(admin.ID, AdminUser{Username: admin.Username, Name: "Locally managed", Email: admin.Email, Role: "admin", Status: StatusActive}, ""); err != nil {
+		t.Fatalf("linked admin became read-only: %v", err)
+	}
+	if err := store.DeleteAdminUser(admin.ID); AsHTTPError(err).Code != "gateway_managed_user_read_only" {
+		t.Fatalf("linked admin deletion was allowed: %v", err)
+	}
+	resolved, err := store.ResolveGatewayManagedOIDCUser(principal.ExternalPrincipalID, tenant.ExternalTenantID, "https://idp.example.test", "admin-subject")
+	if err != nil || resolved.ID != admin.ID || resolved.Role != "admin" {
+		t.Fatalf("managed OIDC did not preserve admin role: user=%+v err=%v", resolved, err)
+	}
+	other := GatewayPrincipal{ID: "principal-other", TenantID: tenant.ID, ExternalPrincipalID: "aip-other", Status: StatusActive}
+	if err := database.Create(&other).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Transaction(func(tx *gorm.DB) error { return store.syncGatewayManagedUser(tx, other, event) }); AsHTTPError(err).Code != "gateway_user_conflict" {
+		t.Fatalf("another principal claimed the admin account: %v", err)
+	}
+	changedEmail := GatewayIntegrationEvent{OccurredAt: event.OccurredAt.Add(time.Minute), Payload: map[string]interface{}{"email": "changed@example.test"}}
+	if err := database.Transaction(func(tx *gorm.DB) error { return store.syncGatewayManagedUser(tx, principal, changedEmail) }); err != nil {
+		t.Fatal(err)
+	}
+	var user AdminUser
+	if err := database.First(&user, "id = ?", admin.ID).Error; err != nil || user.Email != admin.Email || user.Name != "Locally managed" {
+		t.Fatalf("principal email update overwrote linked admin: user=%+v err=%v", user, err)
+	}
+	principal.Status = StatusDisabled
+	if err := database.Save(&principal).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Transaction(func(tx *gorm.DB) error { return refreshGatewayManagedPrincipalState(tx, principal) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.First(&user, "id = ?", admin.ID).Error; err != nil || user.Status != StatusActive || user.Role != "admin" {
+		t.Fatalf("principal status overwrote linked admin: user=%+v err=%v", user, err)
+	}
+}
+
+func TestGatewayManagedUserLinksEmailDespiteGeneratedUsernameCollision(t *testing.T) {
+	store := newGatewayManagedUserTestStore(t)
+	principalID := "aip-email-match"
+	if _, err := store.CreateAdminUser(AdminUser{Username: gatewayManagedUsername(principalID), Email: "other@example.test", Role: "user"}, "LocalPassword123!"); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := store.CreateAdminUser(AdminUser{Username: "existing-admin", Email: "admin@example.test", Role: "admin"}, "LocalPassword123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal := createGatewayManagedUserTestPrincipal(t, store, principalID)
+	event := GatewayIntegrationEvent{OccurredAt: time.Now().UTC(), Payload: map[string]interface{}{"email": admin.Email}}
+	if err := store.db.Transaction(func(tx *gorm.DB) error { return store.syncGatewayManagedUser(tx, principal, event) }); err != nil {
+		t.Fatal(err)
+	}
+	var managed GatewayManagedUser
+	if err := store.db.First(&managed, "external_principal_id = ?", principalID).Error; err != nil || managed.AdminUserID != admin.ID || !managed.LinkedExisting {
+		t.Fatalf("email match was not linked: managed=%+v err=%v", managed, err)
+	}
+}
+
+func TestGatewayManagedUserRejectsAmbiguousEmail(t *testing.T) {
+	store := newGatewayManagedUserTestStore(t)
+	for _, user := range []AdminUser{
+		{Username: "first-admin", Email: "admin@example.test", Role: "admin"},
+		{Username: "second-admin", Email: "ADMIN@example.test", Role: "admin"},
+	} {
+		if _, err := store.CreateAdminUser(user, "LocalPassword123!"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	principal := createGatewayManagedUserTestPrincipal(t, store, "aip-ambiguous")
+	event := GatewayIntegrationEvent{OccurredAt: time.Now().UTC(), Payload: map[string]interface{}{"email": "admin@example.test"}}
+	if err := store.db.Transaction(func(tx *gorm.DB) error { return store.syncGatewayManagedUser(tx, principal, event) }); AsHTTPError(err).Code != "gateway_user_conflict" {
+		t.Fatalf("ambiguous email claimed an account: %v", err)
+	}
+}
 
 func seedManagedGatewayUser(t *testing.T, store *GormStore, profileID, email string) {
 	t.Helper()
@@ -173,9 +319,10 @@ func TestGatewayManagedUserRemainsActiveInAnotherTenant(t *testing.T) {
 	}
 }
 
-func TestGatewayManagedUserRejectsExistingEmail(t *testing.T) {
+func TestGatewayManagedUserLinksExistingEmailWithoutTakingOverAccount(t *testing.T) {
 	store := NewMemoryStore()
-	if _, err := store.CreateAdminUser(AdminUser{Username: "local", Email: "local@example.test", Role: "user"}, "LocalPassword123!"); err != nil {
+	existing, err := store.CreateAdminUser(AdminUser{Username: "local", Name: "Local admin", Email: "local@example.test", Role: "admin", Status: StatusActive}, "LocalPassword123!")
+	if err != nil {
 		t.Fatal(err)
 	}
 	app := NewWithConfig(store, Config{IntegrationToken: "integration_token", SecretKey: "test_secret"}).Handler()
@@ -186,13 +333,61 @@ func TestGatewayManagedUserRejectsExistingEmail(t *testing.T) {
 	member := gatewayIntegrationEvent("evt_member_collision", "tenant_member.added", "tenant_member", "member_collision", "tenant_collision", 1, map[string]interface{}{
 		"externalId": "member_collision", "principalExternalId": "profile_collision", "name": "Other user", "email": "local@example.test",
 	})
-	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", member, "integration_token")
+	for _, event := range []map[string]interface{}{member, member} {
+		response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", event, "integration_token")
+		if response.Code != http.StatusOK {
+			t.Fatalf("existing account link failed: %d %s", response.Code, response.Body)
+		}
+	}
+	var managed GatewayManagedUser
+	if err := store.db.First(&managed, "external_principal_id = ?", "profile_collision").Error; err != nil || managed.AdminUserID != existing.ID || !managed.LinkedExisting {
+		t.Fatalf("existing account was not linked: %+v err=%v", managed, err)
+	}
+	var user AdminUser
+	if err := store.db.First(&user, "id = ?", existing.ID).Error; err != nil || user.Role != "admin" || user.Name != "Local admin" || user.Status != StatusActive {
+		t.Fatalf("existing account changed: %+v err=%v", user, err)
+	}
+	if _, _, err := store.AuthenticateAdminUser(existing.Email, "LocalPassword123!", time.Hour); err != nil {
+		t.Fatalf("existing local login was blocked: %v", err)
+	}
+	if _, err := store.UpdateAdminUser(existing.ID, AdminUser{Username: existing.Username, Name: "Updated locally", Email: existing.Email, Role: existing.Role, Status: existing.Status}, ""); err != nil {
+		t.Fatalf("existing account became read-only: %v", err)
+	}
+	server := NewWithConfig(store, Config{SecretKey: "test_secret"})
+	provider := managedGatewayProvider()
+	resolved, err := server.upsertOAuthAdminUser(provider, map[string]any{"external_user_id": "profile_collision", "organization_id": "tenant_collision", "sub": "local-subject"})
+	if err != nil || resolved.ID != existing.ID || resolved.Role != "admin" {
+		t.Fatalf("managed OIDC did not use linked admin: user=%+v err=%v", resolved, err)
+	}
+	second := gatewayIntegrationEvent("evt_member_other", "tenant_member.added", "tenant_member", "member_other", "tenant_collision", 1, map[string]interface{}{
+		"externalId": "member_other", "principalExternalId": "profile_other", "name": "Other user", "email": "local@example.test",
+	})
+	response := doJSON(t, app, http.MethodPost, "/api/internal/integration/events", second, "integration_token")
 	if response.Code != http.StatusConflict || !jsonBodyHasCode(response.Body, "gateway_user_conflict") {
-		t.Fatalf("expected explicit email conflict, got %d %s", response.Code, response.Body)
+		t.Fatalf("another principal adopted linked admin: %d %s", response.Code, response.Body)
 	}
 	var count int64
-	if err := store.db.Model(&GatewayPrincipal{}).Where("external_principal_id = ?", "profile_collision").Count(&count).Error; err != nil || count != 0 {
+	if err := store.db.Model(&GatewayPrincipal{}).Where("external_principal_id = ?", "profile_other").Count(&count).Error; err != nil || count != 0 {
 		t.Fatalf("conflicted principal was committed: count=%d err=%v", count, err)
+	}
+	updated := gatewayIntegrationEvent("evt_member_disabled", "tenant_member.updated", "tenant_member", "member_collision", "tenant_collision", 2, map[string]interface{}{
+		"externalId": "member_collision", "principalExternalId": "profile_collision", "name": "Renamed by AIP", "email": "new@example.test", "status": "disabled",
+	})
+	response = doJSON(t, app, http.MethodPost, "/api/internal/integration/events", updated, "integration_token")
+	if response.Code != http.StatusOK {
+		t.Fatalf("linked principal update failed: %d %s", response.Code, response.Body)
+	}
+	if err := store.db.First(&user, "id = ?", existing.ID).Error; err != nil || user.Status != StatusActive || user.Email != existing.Email || user.Role != "admin" {
+		t.Fatalf("principal update changed existing account: %+v err=%v", user, err)
+	}
+	if _, _, err := store.AuthenticateAdminUser(existing.Email, "LocalPassword123!", time.Hour); err != nil {
+		t.Fatalf("principal disable blocked existing local login: %v", err)
+	}
+	if err := store.DeleteAdminUser(existing.ID); AsHTTPError(err).Code != "gateway_managed_user_read_only" {
+		t.Fatalf("linked account deletion was allowed: %v", err)
+	}
+	if _, err := server.upsertOAuthAdminUser(provider, map[string]any{"external_user_id": "profile_collision", "organization_id": "tenant_collision", "sub": "local-subject"}); AsHTTPError(err).Code != "gateway_membership_inactive" {
+		t.Fatalf("disabled principal accepted managed OIDC: %v", err)
 	}
 }
 
