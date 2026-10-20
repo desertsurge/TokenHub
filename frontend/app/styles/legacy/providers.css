@@ -1314,6 +1314,8 @@
 
 .provider-model-tools .secondary-button {
   height: 30px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .provider-model-list {

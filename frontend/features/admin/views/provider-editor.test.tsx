@@ -154,17 +154,19 @@ describe("ProviderUpsertModal", () => {
     expect(await screen.findByText("2/3 个可引入模型")).toBeInTheDocument();
   });
 
-  it("lists every catalog model in the provider model directory without truncation", async () => {
+  it("renders every discovered custom model across categories and preserves selections", async () => {
     const user = userEvent.setup();
     setActiveLanguage("zh-CN");
-    // 100 catalog models also guards against a render cap below the full list length.
     const catalogModels = Array.from({ length: 100 }, (_, index) => ({
       id: `upstream-model-${String(index + 1).padStart(2, "0")}`,
       name: `upstream-model-${String(index + 1).padStart(2, "0")}`,
       display_name: `Upstream Model ${index + 1}`,
+      category: index < 50 ? "openai" : "custom",
     }));
     const detail: ProviderCatalogEntry = {
       ...catalogEntry,
+      id: "custom",
+      categories: ["openai", "custom"],
       models_count: catalogModels.length,
       models: catalogModels,
     };
@@ -176,12 +178,18 @@ describe("ProviderUpsertModal", () => {
       status: "active",
       healthy: true,
       priority: 10,
-      options: { catalog_id: "quality-provider" },
+      options: { catalog_id: "custom", model_category: "openai" },
     };
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: detail }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/admin/provider-catalog/custom") && init?.method === "POST") {
+        return new Response(JSON.stringify({ data: detail }), { status: 200 });
+      }
+      if (url.endsWith("/api/admin/providers/prv_quality") && init?.method === "PATCH") {
+        return new Response(JSON.stringify({ provider }), { status: 200 });
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = render(
@@ -200,11 +208,23 @@ describe("ProviderUpsertModal", () => {
       />,
     );
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/api/admin/provider-catalog/custom") && init?.method === "POST")).toBe(true));
     await user.click(screen.getByRole("tab", { name: "模型" }));
 
     expect(await screen.findByText("100/100 个可引入模型")).toBeInTheDocument();
     expect(result.container.querySelectorAll(".model-option")).toHaveLength(100);
+    expect(screen.getByText("Upstream Model 100")).toBeInTheDocument();
+    await user.click(result.container.querySelectorAll(".model-option")[0]);
+    await user.click(result.container.querySelectorAll(".model-option")[99]);
+    expect(screen.getByText("2 个待引入")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    const updateCall = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/api/admin/providers/prv_quality") && init?.method === "PATCH");
+    expect(updateCall).toBeDefined();
+    expect(JSON.parse(String(updateCall?.[1]?.body))).toMatchObject({
+      model_category: "all",
+      selected_models: ["upstream-model-01", "upstream-model-100"],
+    });
   });
 
   it("submits provider advanced fields from declarative plugin form sections", async () => {

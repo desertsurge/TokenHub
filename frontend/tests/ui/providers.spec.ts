@@ -53,3 +53,45 @@ test("providers local-provider-labels", async ({ page, api }, testInfo) => {
     expect(providerReads(), "Language changes must not reload provider data").toBe(initialProviderReads);
   }
 });
+
+test("providers custom model directory renders the complete response", async ({ page, api }, testInfo) => {
+  const provider: Provider = {
+    id: "prv_ui_custom", name: "UI Custom Provider", type: "openai_compatible",
+    base_url: "https://provider.example.test/v1", priority: 1, status: "active", healthy: true,
+    options: { catalog_id: "custom", model_category: "openai" },
+  };
+  const models = Array.from({ length: 100 }, (_, index) => ({
+    id: `ui-upstream-${String(index + 1).padStart(3, "0")}`,
+    name: `ui-upstream-${String(index + 1).padStart(3, "0")}`,
+    display_name: `UI Upstream Model ${index + 1}`,
+    category: index < 50 ? "openai" : "custom",
+  }));
+  api.respond("GET", "/api/admin/providers", { data: [provider] });
+  api.respond("GET", "/api/admin/provider-catalog", { data: [{ id: "custom", name: "Custom", display_name: "Custom", type: "openai_compatible", categories: ["openai", "custom"], models_count: 100 }] });
+  api.respond("POST", "/api/admin/provider-catalog/custom", { data: { id: "custom", name: "Custom", display_name: "Custom", type: "openai_compatible", categories: ["openai", "custom"], models_count: 100, models } });
+  api.respond("GET", "/api/admin/provider-adapters", { data: [{ type: "openai_compatible", capabilities: ["chat"] }] });
+  for (const path of ["provider-resources", "routing-rules", "audit/events", "providers/monitoring", "plugin-ui-manifest", "plugin-actions", "plugins", "plugin-marketplace", "plugin-background-jobs"]) {
+    api.respond("GET", `/api/admin/${path}`, { data: [] });
+  }
+  api.define("GET", "/api/admin/audit/requests", () => ({ json: {
+    data: [], pagination: { page: 1, page_size: 20, total: 0, total_pages: 0 },
+    summary: { all: 0, ok: 0, error: 0, average_latency_ms: 0 },
+  } }), query => {
+    expect(Object.fromEntries(query)).toEqual({ page: "1", page_size: "20", status: "all", q: "" });
+  });
+
+  await page.goto("/providers");
+  await page.getByRole("row").filter({ hasText: provider.name }).getByRole("button", { name: "编辑" }).click();
+  const editor = page.locator(".provider-modal");
+  await editor.getByRole("tab", { name: "模型" }).click();
+  await expect(editor.getByText("100/100 个可引入模型")).toBeVisible();
+  await expect(editor.locator(".model-option")).toHaveCount(100);
+  await expect(editor.locator(".pagination")).toHaveCount(0);
+  await capture(page, testInfo, editor, "providers-custom-models-list", "Provider 模型目录完整列表", "viewport");
+  await editor.getByText("UI Upstream Model 100").scrollIntoViewIfNeeded();
+  await expect(editor.getByText("UI Upstream Model 100")).toBeVisible();
+  await capture(page, testInfo, editor, "providers-custom-models-end", "Provider 模型目录末项", "viewport");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await editor.getByText("UI Upstream Model 1", { exact: true }).scrollIntoViewIfNeeded();
+  await capture(page, testInfo, editor, "providers-custom-models-mobile", "Provider 模型目录手机视口", "viewport");
+});

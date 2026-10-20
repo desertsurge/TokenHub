@@ -446,10 +446,10 @@ export function ProviderUpsertModal({
     () => (effectiveDetail?.models ?? []).filter((model) => providerCatalogModelIsSelectable({
       supportsModelPreview: selectedCatalogSupportsModelPreview,
       quickAPIFlow,
-      selectedCategory: modelCategory,
+      selectedCategory: mode === "edit" ? "all" : modelCategory,
       discoveredCategory: modelCategoryForCatalog(model, modelCategoryData),
     })),
-    [effectiveDetail, modelCategory, modelCategoryData, quickAPIFlow, selectedCatalogSupportsModelPreview],
+    [effectiveDetail, mode, modelCategory, modelCategoryData, quickAPIFlow, selectedCatalogSupportsModelPreview],
   );
   const listedCatalog = useMemo(
     () => quickAPIFlow ? directCredentialCatalog.filter((entry) => entry.id !== "custom") : categoryCatalog,
@@ -483,6 +483,7 @@ export function ProviderUpsertModal({
     .filter(([id, selected]) => selected && !importedModelIDs.has(id))
     .map(([id]) => id);
   const selectedModelCount = selectedModelIDs.length;
+  const selectedModelsCrossCategory = mode === "edit" && models.some((model) => selectedModelIDs.includes(model.id) && modelCategoryForCatalog(model, modelCategoryData) !== modelCategory);
   const selectedEntry = usesAccountCatalog
     ? accountProviderCatalog ?? accountProviderCatalogOptions.find((entry) => entry.id === catalogID) ?? defaultAccountProviderCatalogEntry
     : detail ?? (catalogID === "custom" ? customCatalogEntry : catalog.find((entry) => entry.id === catalogID));
@@ -961,7 +962,7 @@ export function ProviderUpsertModal({
         ...values,
         api_key: mode === "create" && credentialMode !== "provider_api_key" ? "" : values.api_key,
         catalog_id: catalogID,
-        model_category: quickAPIFlow || (mode === "edit" && !providerModelCategory) ? "" : modelCategory,
+        model_category: quickAPIFlow || (mode === "edit" && !providerModelCategory) ? "" : selectedModelsCrossCategory ? "all" : modelCategory,
         selected_models: selectedModelIDs.length > 0 ? selectedModelIDs.join(",") : "",
         custom_models: (selectedCatalogUsesDiscoveryPreview || usesAccountCatalog) && effectiveDetail?.models ? JSON.stringify(effectiveDetail.models) : "",
       });
@@ -990,7 +991,7 @@ export function ProviderUpsertModal({
         accountResourceCreated = true;
       }
       const imported = result.imported_models ?? 0;
-      setNotice(providerSaveMessage(mode === "edit", accountResourceCreated, imported, modelCategoryLabel(modelCategory)));
+      setNotice(providerSaveMessage(mode === "edit", accountResourceCreated, imported, mode === "edit" ? "" : modelCategoryLabel(modelCategory)));
       await onSaved();
     } catch (err) {
       if (isAuthExpiredError(err)) return;
