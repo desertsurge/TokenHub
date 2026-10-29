@@ -42,7 +42,7 @@ func TestGatewayModelAccessKeyCreateReplayRejectsReboundProject(t *testing.T) {
 	rebindJobKey(t, store, created.Data.ID)
 	response := doJSON(t, app, http.MethodPost, "/api/internal/model-access-keys", map[string]interface{}{
 		"request_id": "rebind_fixture_request", "tenant_id": "tenant_01", "project_id": "project_01",
-		"principal_type": "user", "principal_id": "user_01", "name": "rebind_fixture_request",
+		"principal_type": "user", "principal_id": "user_01", "name": "rebind_fixture_request", "requested_by": "user_01",
 	}, "integration_token")
 	if response.Code != http.StatusConflict || !jsonBodyHasCode(response.Body, "model_access_key_request_project_changed") {
 		t.Fatalf("stale create replay returned different project: %d %s", response.Code, response.Body)
