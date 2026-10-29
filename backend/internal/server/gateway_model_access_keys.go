@@ -138,6 +138,10 @@ func (s *Server) handleGatewayModelAccessKeyItem(w http.ResponseWriter, r *http.
 		return
 	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/internal/model-access-keys/"), "/"), "/")
+	if len(parts) == 2 && parts[0] != "" && parts[1] == "project" {
+		s.handleGatewayModelAccessKeyProject(w, r, parts[0])
+		return
+	}
 	if len(parts) != 2 || parts[0] == "" || (parts[1] != "revoke" && parts[1] != "reveal") {
 		writeError(w, r, NewHTTPError(http.StatusNotFound, "not_found", "Not found"))
 		return
@@ -190,7 +194,7 @@ func (s *GormStore) CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreat
 	if err := validateGatewayModelAccessKeyRequesterForTenant(s.db, normalized.TenantExternalID, normalized.RequestedBy); err != nil {
 		return GatewayModelAccessKeyCreateResult{}, err
 	}
-	if result, found, err := findGatewayModelAccessKeyRequest(s.db, controlRequestID, digest); found || err != nil {
+	if result, found, err := findGatewayModelAccessKeyRequest(s.db, controlRequestID, digest, normalized.ProjectExternalID); found || err != nil {
 		return result, err
 	}
 	if err := validateNewGatewayModelAccessKeyInput(normalized, time.Now().UTC()); err != nil {
@@ -242,7 +246,7 @@ func (s *GormStore) CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreat
 		if err := validateGatewayModelAccessKeyRequesterForTenant(tx, normalized.TenantExternalID, normalized.RequestedBy); err != nil {
 			return err
 		}
-		if result, found, findErr := findGatewayModelAccessKeyRequest(tx, controlRequestID, digest); found || findErr != nil {
+		if result, found, findErr := findGatewayModelAccessKeyRequest(tx, controlRequestID, digest, normalized.ProjectExternalID); found || findErr != nil {
 			if findErr != nil {
 				return findErr
 			}
@@ -287,7 +291,7 @@ func (s *GormStore) CreateGatewayModelAccessKey(input GatewayModelAccessKeyCreat
 		if requesterErr := validateGatewayModelAccessKeyRequesterForTenant(s.db, normalized.TenantExternalID, normalized.RequestedBy); requesterErr != nil {
 			return GatewayModelAccessKeyCreateResult{}, requesterErr
 		}
-		if result, found, findErr := findGatewayModelAccessKeyRequest(s.db, controlRequestID, digest); found || findErr != nil {
+		if result, found, findErr := findGatewayModelAccessKeyRequest(s.db, controlRequestID, digest, normalized.ProjectExternalID); found || findErr != nil {
 			return result, findErr
 		}
 		return GatewayModelAccessKeyCreateResult{}, err
@@ -517,6 +521,7 @@ func hydrateGatewayModelAccessKeyEffectiveStatuses(db *gorm.DB, items []APIKey, 
 
 	for i := range items {
 		key := &items[i]
+		key.ConfiguredStatus = key.Status
 		if key.Status != StatusActive {
 			continue
 		}
@@ -652,6 +657,9 @@ func (s *GormStore) RevokeGatewayModelAccessKey(id string, tenantExternalID stri
 			return err
 		}
 		query := tx.Where("id = ? AND managed_by = ? AND tenant_external_id = ?", id, gatewayModelAccessKeyManagedBy, tenantExternalID)
+		if err := s.lockScopeForUpdate(tx, "api_key", id); err != nil {
+			return err
+		}
 		if principalType != "" || principalID != "" {
 			if principalType == "" || principalID == "" {
 				return NewHTTPError(http.StatusBadRequest, "invalid_request", "Principal type and principal ID must be supplied together")
@@ -773,7 +781,7 @@ func normalizedUniqueStrings(values []string) []string {
 	return result
 }
 
-func findGatewayModelAccessKeyRequest(db *gorm.DB, controlRequestID string, digest string) (GatewayModelAccessKeyCreateResult, bool, error) {
+func findGatewayModelAccessKeyRequest(db *gorm.DB, controlRequestID string, digest string, projectExternalID string) (GatewayModelAccessKeyCreateResult, bool, error) {
 	var existing APIKey
 	err := db.First(&existing, "control_request_id = ?", controlRequestID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -785,6 +793,10 @@ func findGatewayModelAccessKeyRequest(db *gorm.DB, controlRequestID string, dige
 	if existing.ControlRequestDigest != digest {
 		return GatewayModelAccessKeyCreateResult{}, true, NewHTTPError(http.StatusConflict, "model_access_key_request_conflict", "Request ID was reused with different content")
 	}
+	if existing.ProjectExternalID != projectExternalID {
+		return GatewayModelAccessKeyCreateResult{}, true, NewHTTPError(http.StatusConflict, "model_access_key_request_project_changed", "The credential project changed after this creation request; use a new request ID")
+	}
+	existing.ConfiguredStatus = existing.Status
 	existing.Status = gatewayModelAccessKeyEffectiveStatus(db, existing)
 	return GatewayModelAccessKeyCreateResult{Key: publicKey(existing), Created: false}, true, nil
 }
