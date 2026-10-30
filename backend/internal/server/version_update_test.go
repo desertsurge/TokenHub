@@ -348,7 +348,7 @@ func waitForSystemVersionAudit(t *testing.T, store *MemoryStore, action, status,
 }
 
 func TestValidateNativeAssetURL(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	for _, rawURL := range []string{
 		"https://github.com/astaxie/TokenHub/releases/download/v0.3.2/archive.tar.gz",
 		"https://release-assets.githubusercontent.com/github-production-release-asset/file",

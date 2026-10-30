@@ -458,6 +458,7 @@ kinds:
 }
 
 func TestParseManifestRejectsUnsafeMarketplaceMetadataURL(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	_, err := ParseManifest([]byte(`
 schema_version: 1
 id: tokenhub.marketplace.unsafe
@@ -725,6 +726,7 @@ capabilities:
 }
 
 func TestParseManifestRejectsUnsafeDistributionURL(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	_, err := ParseManifest([]byte(`
 schema_version: 1
 id: tokenhub.provider.unsafe-distribution

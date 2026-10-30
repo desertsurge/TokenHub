@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 
+	"tokenhub/backend/internal/securitypolicy"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -987,7 +989,10 @@ func validatePluginDistributionURL(label string, value string) error {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return fmt.Errorf("distribution.%s must be an absolute URL", label)
 	}
-	if parsed.Scheme != "https" {
+	if parsed.Scheme != "https" && (securitypolicy.RequireHTTPS() || parsed.Scheme != "http") {
+		if !securitypolicy.RequireHTTPS() {
+			return fmt.Errorf("distribution.%s must use HTTP or HTTPS", label)
+		}
 		return fmt.Errorf("distribution.%s must use HTTPS", label)
 	}
 	return nil
@@ -1001,7 +1006,10 @@ func validatePluginMarketplaceURL(label string, value string) error {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return fmt.Errorf("marketplace.%s must be an absolute URL", label)
 	}
-	if parsed.Scheme != "https" {
+	if parsed.Scheme != "https" && (securitypolicy.RequireHTTPS() || parsed.Scheme != "http") {
+		if !securitypolicy.RequireHTTPS() {
+			return fmt.Errorf("marketplace.%s must use HTTP or HTTPS", label)
+		}
 		return fmt.Errorf("marketplace.%s must use HTTPS", label)
 	}
 	return nil

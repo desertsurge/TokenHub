@@ -30,6 +30,8 @@ Use a new semantic plugin version for every changed artifact. Keep the plugin ID
 
 TokenHub's Marketplace is a remote HTTPS JSON index. It describes plugins and released versions and points to immutable ZIP artifacts. It is separate from `plugin-devkit` and from `TOKENHUB_PLUGIN_DIR`. A Marketplace record should provide at least an artifact URL and lowercase SHA-256 checksum; signed releases can also provide an Ed25519 signature URL and key ID.
 
+HTTP is permitted by default for index and artifact URLs. Set `TOKENHUB_REQUIRE_HTTPS=true` to require HTTPS; checksum, signature, immutable URL, and download-address checks still apply.
+
 Never reuse a release URL for different bytes. Checksums and signatures protect the exact archive, so rebuilding a published version requires a new version and artifact.
 
 ## Install and Inspect

@@ -15,8 +15,8 @@ import (
 // validateProviderUpstreamBaseURL validates administrator-configured upstreams.
 // Strict and auto both allow RFC1918/ULA literals when the CIDR list is empty.
 // Auto also defers HTTP hostname classification to DNS preflight before sending.
-// Public plaintext, embedded credentials and special-use addresses remain
-// blocked. Redirects must keep the original scheme and authority.
+// Public plaintext is blocked when HTTPS is required. Embedded credentials and
+// special-use addresses remain blocked. Redirects retain scheme and authority.
 func validateProviderUpstreamBaseURL(endpoint *url.URL, allowedPrivate []*net.IPNet, allowLocalhost bool) error {
 	if err := validateProviderUpstreamURLSyntax(endpoint); err != nil {
 		return err
@@ -36,7 +36,7 @@ func validateProviderUpstreamBaseURL(endpoint *url.URL, allowedPrivate []*net.IP
 			return NewHTTPError(http.StatusBadRequest, "provider_base_url_not_allowed", "Base URL host must not be a private, loopback, or link-local address")
 		}
 	}
-	if scheme == "http" && !plaintextAllowed && !(providerHTTPHostname(endpoint) && providerUpstreamAutoAccess()) {
+	if scheme == "http" && requireHTTPS() && !plaintextAllowed && !(providerHTTPHostname(endpoint) && providerUpstreamAutoAccess()) {
 		return NewHTTPError(http.StatusBadRequest, "provider_base_url_insecure_scheme", "Public provider base URLs must use https")
 	}
 	return nil

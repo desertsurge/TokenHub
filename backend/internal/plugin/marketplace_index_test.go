@@ -37,6 +37,7 @@ func TestDecodeMarketplaceIndexAcceptsGoldenFixtures(t *testing.T) {
 }
 
 func TestDecodeMarketplaceIndexRejectsInvalidGoldenFixtures(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	for _, tc := range []struct {
 		fixture string
 		want    string
@@ -59,6 +60,7 @@ func TestDecodeMarketplaceIndexRejectsInvalidGoldenFixtures(t *testing.T) {
 }
 
 func TestValidateMarketplaceIndexRejectsAdversarialRecords(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	for _, tc := range []struct {
 		name   string
 		mutate func(*MarketplaceChannelIndex)

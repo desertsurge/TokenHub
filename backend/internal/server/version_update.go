@@ -56,7 +56,10 @@ func validateNativeAssetURL(rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("parse release asset URL: %w", err)
 	}
-	if parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" {
+	if (parsed.Scheme != "https" && (requireHTTPS() || parsed.Scheme != "http")) || parsed.User != nil || parsed.Port() != "" {
+		if !requireHTTPS() {
+			return errors.New("release asset URL must use HTTP or HTTPS without credentials or a custom port")
+		}
 		return errors.New("release asset URL must use HTTPS without credentials or a custom port")
 	}
 	switch strings.ToLower(parsed.Hostname()) {

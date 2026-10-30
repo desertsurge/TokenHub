@@ -367,6 +367,7 @@ func TestOAuthCallbackURLUsesOnlyConfiguredOrTrustedOrigins(t *testing.T) {
 }
 
 func TestIdentityProviderRedirectURIRejectsInsecureExternalHTTP(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	server := New(NewMemoryStore())
 	request := httptest.NewRequest(http.MethodGet, "http://localhost:8080/api/admin/auth/oauth/start", nil)
 	provider := AdminResource{Fields: map[string]any{"redirect_uri": "http://oauth.example/api/admin/auth/oauth/callback"}}

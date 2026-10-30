@@ -173,6 +173,7 @@ func TestAdminPluginInstallPostUploadsAndInstallsPackage(t *testing.T) {
 }
 
 func TestAdminPluginInstallPostRejectsUnsafeDownloadURL(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	server := NewWithConfig(NewMemoryStore(), Config{AdminToken: "dev_admin_token", PluginDir: t.TempDir()})
 
 	response := doJSON(t, server.Handler(), http.MethodPost, "/api/admin/plugins/install", map[string]any{

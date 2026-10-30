@@ -42,6 +42,7 @@ func TestStrictProviderUpstreamRedirectRejectsOriginChanges(t *testing.T) {
 }
 
 func TestProviderUpstreamPolicyTransportRejectsPublicHTTPBeforeSendingCredentials(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	called := false
 	next := roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		called = true

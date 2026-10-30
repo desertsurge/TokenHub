@@ -384,6 +384,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_MANAGED_UPDATES` | `false` | 允许容器部署执行在线更新与回退；原生部署始终允许 |
 | `TOKENHUB_INSTALL_ROOT` | `/opt/tokenhub` | 托管 Release 在线更新与回退使用的安装根目录 |
 | `TOKENHUB_TRUSTED_PROXY_CIDRS` | 空 | 允许提供 `X-Forwarded-For`、`X-Forwarded-Host` 和 `X-Forwarded-Proto` 的代理 IP 或 CIDR，逗号分隔；可信代理必须覆盖这些请求头，不得透传客户端值 |
+| `TOKENHUB_REQUIRE_HTTPS` | `false` | 控制 Provider 上游、托管 OIDC、OAuth 回调、插件及更新资源地址的 HTTPS 要求。默认允许 HTTP；设为 `true` 时要求 HTTPS，并保留现有内网地址例外。URL 语法、主机白名单、DNS/IP 出站限制与同源重定向限制继续生效；无效值使用默认值 |
 | `TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE` | `strict` | `strict` 在 CIDR 清单为空时允许 RFC1918/ULA 字面量。回环地址仍需 `TOKENHUB_PROVIDER_UPSTREAM_ALLOW_LOOPBACK`。设置为 `auto` 后才允许管理员配置的内网域名。未知值按严格模式处理 |
 | `TOKENHUB_PROVIDER_UPSTREAM_PROXY_LOCAL` | `false` | 本地上游默认绕过所选代理。设为 `true` 后本地目标也遵循所选代理策略；继承环境模式仍遵循 `NO_PROXY`。若需强制走代理，应同时选择“使用统一代理” |
 | `TOKENHUB_PROVIDER_UPSTREAM_ALLOWED_CIDRS` | 空 | 可选的限制性私网 CIDR 清单。空清单在两种模式下都允许 RFC1918/ULA 字面量；自动模式下这些范围也适用于内网域名解析结果。非空时限制私网字面量，自动模式还会同时限制内网域名解析结果。非空但无效的配置不会退回全部放行；特殊危险地址不能通过清单放行 |
@@ -455,6 +456,8 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_RESPONSE_MAX_QUEUED_JOBS` | `1000` | 单个部署接受的后台 Responses 排队和运行任务上限 |
 | `TOKENHUB_API` | 空 | `tokenhub-migrate` CLI 的目标 Admin API 地址。仅由该 CLI 读取，后端服务不会读取；可被 `--to` 覆盖 |
 
+`TOKENHUB_REQUIRE_HTTPS` 不改变浏览器的安全上下文规则。OAuth 登录仍依赖 Web Crypto，普通公网 HTTP 页面无法提供此能力。
+
 如需通过 Compose 运行可选 Redis 计费组件，请在常规命令中追加 overlay 文件：
 
 ```bash
@@ -467,17 +470,17 @@ docker compose --env-file deploy/.env \
 
 管理员可以直接填写 `http://192.168.1.10:8000/v1` 等 HTTP 私网字面量，无需更改访问模式。设置为 `auto` 后，还可在不配置 CIDR 清单的情况下填写回环地址和内网域名，例如 `http://127.0.0.1:8000/v1`、`host.docker.internal`、Docker 服务名或企业内网域名。地址须从后端所在环境可达；容器的回环地址指向容器自身。TokenHub 不会自动创建 DNS 记录、加入 Docker 网络或配置宿主机别名。
 
-保存时校验 URL 语法和字面量地址，不查询 DNS，因此离线服务也可配置，且不会阻塞存储操作。发送请求前，HTTP 域名必须全部解析为获准的本地地址；公网或混合公网／私网结果会在发送凭据和请求体前被拒绝。实际直连使用已校验地址，不再次解析；代理请求保留原始 Host 与 TLS 服务名。metadata、link-local、multicast 等特殊危险目标继续禁止。同协议、同地址及端口的重定向可以继续，包括内网同源跳转；跨源跳转仍被拒绝。
+保存时校验 URL 语法和字面量地址，不查询 DNS，因此离线服务也可配置，且不会阻塞存储操作。`TOKENHUB_REQUIRE_HTTPS=true` 时，HTTP 域名必须全部解析为获准的本地地址；公网或混合公网／私网结果会在发送凭据和请求体前被拒绝。设为 `false` 后允许公网 HTTP 字面 IP 和域名，但仍拒绝不允许的 DNS/IP 目标。实际直连使用已校验地址，不再次解析；代理请求保留原始 Host 与 TLS 服务名。metadata、link-local、multicast 等特殊危险目标继续禁止。同协议、同地址及端口的重定向可以继续，包括内网同源跳转；跨源跳转仍被拒绝。
 
 HTTP 域名走代理时，TokenHub 使用 CONNECT 连接已验证 IP，并在隧道内保留原始 Host。代理须允许 CONNECT 到模型服务端口；拒绝时不会回退为直连。
 
-严格模式是默认值。它允许 RFC1918/ULA 字面量，localhost 仍需 `TOKENHUB_PROVIDER_UPSTREAM_ALLOW_LOOPBACK`。运维人员必须设置 `TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE=auto`，才会放行内网域名。两种模式下，非空私网清单都会继续限制访问范围，包括用来禁止全部私网字面量。如本地流量也必须遵循所选代理，需另外设置 `TOKENHUB_PROVIDER_UPSTREAM_PROXY_LOCAL=true`。这些部署配置需重启后端或重建容器生效。
+严格模式是默认值。它允许 RFC1918/ULA 字面量，localhost 仍需 `TOKENHUB_PROVIDER_UPSTREAM_ALLOW_LOOPBACK`。运维人员必须设置 `TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE=auto`，才会放行内网域名。两种模式下，非空私网清单都会继续限制访问范围，包括用来禁止全部私网字面量。如本地流量也必须遵循所选代理，需另外设置 `TOKENHUB_PROVIDER_UPSTREAM_PROXY_LOCAL=true`。这些部署配置（包括 `TOKENHUB_REQUIRE_HTTPS`）需重启后端或重建容器生效。
 
 无需重启也可以在「系统设置 → 基础设置 → Provider 出口模式」切换出口。升级默认使用「继承环境变量代理」，读取进程启动时捕获的 `HTTP_PROXY`、`HTTPS_PROXY` 和 `NO_PROXY`；「直接连接」忽略这些变量；「使用统一代理」把一个 HTTP 或 HTTPS forward proxy 用于全部 Provider 上游通道，包括推理、流式、图片、模型发现、Provider catalog 刷新、额度查询和 Provider 凭据刷新。身份登录、通知、Tracing 和版本更新不受这项设置影响。
 
 统一代理支持可选的 Basic 认证，密码会加密保存，API 与控制台只显示掩码。保存代理配置时只校验其语法；「测试代理连接」使用当前未保存表单和已有 Provider，仅验证代理 TCP/TLS、认证、CONNECT 与目标 TLS（使用系统 CA），不会发送 Provider 凭据或模型请求。无论选择哪种代理模式，Provider 与 Provider Resource 的 Base URL 都保留原有的入库协议和字面量地址校验：metadata 等始终禁止的目标仍会被拒绝，本地目标遵循上文的自动／严格访问策略。每次代理请求前，TokenHub 都会在本地解析原始 Provider 域名，执行已配置的本地地址与特殊用途地址策略，并把代理请求或 CONNECT 隧道固定到已校验的 IP，同时保留原始 HTTP Host 和 TLS 服务名。直连及 `NO_PROXY` 命中的请求也会在受保护的拨号路径执行相同地址策略。代理配置、认证、连接、超时和 HTTPS CONNECT 失败按平台出口故障处理，不会惩罚 Provider 资源，也不会触发路由故障转移。对于明文 HTTP 代理请求，HTTP 错误响应可能来自代理或 Provider，因此保留常规上游错误处理。多实例会在五秒内加载共享配置，数据库临时读取失败时继续使用上一份有效配置。
 
-后端使用 Fake-IP DNS 时，在「系统设置 → 基础设置 → Synthetic DNS / Fake-IP 网段」配置代理实际地址池。这项独立例外默认关闭，只作用于域名解析结果，不放行字面量 Provider IP。不要假定所有代理都使用 `198.18.0.0/15`，该网段为基准测试保留，并非 Fake-IP 专属。私网 synthetic 地址池仍需单独开启私网信任。命中已启用 synthetic 地址池的域名继续要求 HTTPS，且不享受本地默认绕过代理，即使其 Fake-IP 位于 RFC1918/ULA。真实本地服务独立遵循上文的自动／严格策略。Synthetic 例外不能放行 loopback、link-local、metadata、multicast 或受保护的 NAT64 目标。
+后端使用 Fake-IP DNS 时，在「系统设置 → 基础设置 → Synthetic DNS / Fake-IP 网段」配置代理实际地址池。这项独立例外默认关闭，只作用于域名解析结果，不放行字面量 Provider IP。不要假定所有代理都使用 `198.18.0.0/15`，该网段为基准测试保留，并非 Fake-IP 专属。私网 synthetic 地址池仍需单独开启私网信任。命中已启用 synthetic 地址池的域名在 `TOKENHUB_REQUIRE_HTTPS=true` 时仍要求 HTTPS，且不享受本地默认绕过代理，即使其 Fake-IP 位于 RFC1918/ULA。真实本地服务独立遵循上文的自动／严格策略。Synthetic 例外不能放行 loopback、link-local、metadata、multicast 或受保护的 NAT64 目标。
 
 模型目录连接失败现在区分 DNS 地址被安全策略拒绝（`provider_models_address_blocked`）、域名解析失败（`provider_models_dns_failed`）、超时（`provider_models_timeout`）和 TLS 证书验证失败（`provider_models_tls_failed`）。若 Fake-IP 解析结果被拒绝，应核实代理实际地址池后配置现有兼容例外。错误响应使用固定文案，不暴露原始传输错误或凭据。 地址被拒绝的错误在 `error.details.blocked_ips` 中提供规范化的实际 IP；演练场失败事件通过 `error_details.blocked_ips` 提供相同信息。控制台同时显示被拒绝地址和配置入口。配置前应核实代理实际地址池，系统不会自动信任被拒绝的地址。
 

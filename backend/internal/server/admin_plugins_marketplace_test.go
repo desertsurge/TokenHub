@@ -10,6 +10,7 @@ import (
 )
 
 func TestAdminPluginsGetExposesSafeMarketplaceMetadata(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	server := NewWithConfig(NewMemoryStore(), Config{AdminToken: "dev_admin_token", PluginDir: t.TempDir()})
 	err := server.pluginRegistry.Register(pluginmeta.Descriptor{
 		ID:      "tokenhub.marketplace.rich",

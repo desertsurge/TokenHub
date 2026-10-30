@@ -56,6 +56,7 @@ func TestValidateProviderUpstreamBaseURLAllowsPublicHTTPS(t *testing.T) {
 }
 
 func TestValidateProviderUpstreamBaseURLRejectsPublicHTTP(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	for _, raw := range []string{
 		"http://api.example.com/v1",
 		"http://8.8.8.8/v1",
@@ -663,6 +664,7 @@ func TestAdminCreateProviderRejectsLoopbackByDefault(t *testing.T) {
 }
 
 func TestAdminCreateProviderRejectsPublicHTTP(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	t.Setenv("TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE", "strict")
 	store := NewMemoryStore()
 	if err := SeedDemoData(store); err != nil {
@@ -681,6 +683,7 @@ func TestAdminCreateProviderRejectsPublicHTTP(t *testing.T) {
 // TestAdminPatchProviderRejectsSSRFBaseURL verifies the same guard on update:
 // an existing healthy provider must not be repointed at a metadata endpoint.
 func TestAdminPatchProviderRejectsSSRFBaseURL(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	t.Setenv("TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE", "strict")
 	store := NewMemoryStore()
 	if err := SeedDemoData(store); err != nil {
@@ -722,6 +725,7 @@ func TestAdminPatchProviderRejectsSSRFBaseURL(t *testing.T) {
 }
 
 func TestAdminProviderURLValidationIgnoresAmbientProxy(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	for _, proxyVariables := range []struct {
 		name  string
 		http  string
@@ -871,6 +875,7 @@ func TestUpstreamClientsGuardInferenceDial(t *testing.T) {
 // URLs, while clearing the override (empty value) and allowlisted literals
 // keep working.
 func TestProviderResourceBaseURLSSRFGuard(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	t.Setenv("TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE", "strict")
 	newStore := func(t *testing.T) (*GormStore, Provider) {
 		t.Helper()

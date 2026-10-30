@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"tokenhub/backend/internal/securitypolicy"
 )
 
 type Config struct {
@@ -287,12 +289,19 @@ func weakProductionSecretReason(value string, minimumLength int, blocked ...stri
 	return ""
 }
 
+func requireHTTPS() bool {
+	return securitypolicy.RequireHTTPS()
+}
+
 func validateHTTPSURL(name string, value string) error {
 	parsed, err := url.Parse(strings.TrimSpace(value))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return fmt.Errorf("invalid %s: expected an absolute URL", name)
 	}
-	if !strings.EqualFold(parsed.Scheme, "https") {
+	if !strings.EqualFold(parsed.Scheme, "https") && (requireHTTPS() || !strings.EqualFold(parsed.Scheme, "http")) {
+		if !requireHTTPS() {
+			return fmt.Errorf("invalid %s: expected HTTP or HTTPS", name)
+		}
 		return fmt.Errorf("invalid %s: expected HTTPS", name)
 	}
 	return nil

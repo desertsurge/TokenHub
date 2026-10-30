@@ -290,7 +290,10 @@ func codexResponsesEndpoint(provider Provider) (string, error) {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return "", NewHTTPError(http.StatusBadRequest, "codex_base_url_invalid", "Codex base URL must be an absolute URL")
 	}
-	if parsed.Scheme != "https" && !strings.EqualFold(parsed.Hostname(), "localhost") {
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", NewHTTPError(http.StatusBadRequest, "codex_base_url_invalid", "Codex base URL must use HTTP or HTTPS")
+	}
+	if parsed.Scheme != "https" && requireHTTPS() && !strings.EqualFold(parsed.Hostname(), "localhost") {
 		return "", NewHTTPError(http.StatusBadRequest, "codex_base_url_invalid", "Codex base URL must use HTTPS")
 	}
 	if err := validateCodexEndpointHost(provider, parsed); err != nil {

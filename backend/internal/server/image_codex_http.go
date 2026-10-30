@@ -261,7 +261,10 @@ func codexImageEndpoint(provider Provider, edit bool) (string, error) {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return "", NewHTTPError(http.StatusBadRequest, "codex_base_url_invalid", "Codex base URL must be an absolute URL")
 	}
-	if parsed.Scheme != "https" && !strings.EqualFold(parsed.Hostname(), "localhost") &&
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", NewHTTPError(http.StatusBadRequest, "codex_base_url_invalid", "Codex base URL must use HTTP or HTTPS")
+	}
+	if parsed.Scheme != "https" && requireHTTPS() && !strings.EqualFold(parsed.Hostname(), "localhost") &&
 		parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "::1" {
 		return "", NewHTTPError(http.StatusBadRequest, "codex_base_url_invalid", "Codex base URL must use HTTPS")
 	}

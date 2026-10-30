@@ -435,10 +435,11 @@ func sanitizeAdminPluginPublicHTTPSURL(raw string) string {
 		return ""
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" || parsed.User != nil {
+	if err != nil || parsed.Host == "" || parsed.User != nil ||
+		(!strings.EqualFold(parsed.Scheme, "https") && (requireHTTPS() || !strings.EqualFold(parsed.Scheme, "http"))) {
 		return ""
 	}
-	parsed.Scheme = "https"
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	parsed.RawQuery = ""
 	parsed.ForceQuery = false
 	parsed.Fragment = ""
@@ -1093,7 +1094,10 @@ func validatePluginInstallHTTPSURL(label string, raw string) error {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return errors.New(label + " must be an absolute URL")
 	}
-	if parsed.Scheme != "https" {
+	if parsed.Scheme != "https" && (requireHTTPS() || parsed.Scheme != "http") {
+		if !requireHTTPS() {
+			return errors.New(label + " must use HTTP or HTTPS")
+		}
 		return errors.New(label + " must use HTTPS")
 	}
 	return nil

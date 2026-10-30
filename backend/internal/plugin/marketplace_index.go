@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"tokenhub/backend/internal/securitypolicy"
 )
 
 func DecodeMarketplaceIndex(data []byte) (MarketplaceChannelIndex, error) {
@@ -370,8 +372,13 @@ func validateMarketplaceReview(review MarketplaceReleaseReview) error {
 func validateMarketplaceImmutableHTTPSURL(field string, value string) error {
 	trimmed := strings.TrimSpace(value)
 	parsed, err := url.Parse(trimmed)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return fmt.Errorf("%s must be an HTTPS URL", field)
+	requireHTTPS := securitypolicy.RequireHTTPS()
+	schemeRequirement := "HTTPS"
+	if !requireHTTPS {
+		schemeRequirement = "HTTP or HTTPS"
+	}
+	if err != nil || parsed == nil || parsed.Host == "" || (parsed.Scheme != "https" && (requireHTTPS || parsed.Scheme != "http")) {
+		return fmt.Errorf("%s must be an %s URL", field, schemeRequirement)
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
 		return fmt.Errorf("%s must not contain query or fragment parameters", field)
@@ -383,7 +390,7 @@ func validateMarketplaceImmutableHTTPSURL(field string, value string) error {
 	lowerPath := strings.ToLower(parsed.EscapedPath())
 	for _, mutableSegment := range []string{"/latest", "/main/", "/master/", "/head/", "/snapshot/"} {
 		if strings.Contains(lowerPath, mutableSegment) {
-			return fmt.Errorf("%s must be immutable HTTPS URL", field)
+			return fmt.Errorf("%s must be immutable %s URL", field, schemeRequirement)
 		}
 	}
 	return nil

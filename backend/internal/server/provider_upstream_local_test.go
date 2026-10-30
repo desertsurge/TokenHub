@@ -39,6 +39,7 @@ func TestLocalUpstreamDefaultsAllowPrivateLiterals(t *testing.T) {
 }
 
 func TestStrictModeRejectsHTTPHostnameEvenWhenPrivate(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	t.Setenv("TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE", "strict")
 	t.Setenv("TOKENHUB_PROVIDER_UPSTREAM_ALLOWED_CIDRS", "")
 	request, _ := http.NewRequest(http.MethodGet, "http://models.corp.example:8000/v1/models", nil)
@@ -76,6 +77,7 @@ func TestStrictEmptyCIDRsAllowPrivateLiteralDial(t *testing.T) {
 }
 
 func TestLocalUpstreamAutoModeAndLegacyRestrictions(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	useAutoLocalUpstreams(t)
 	for _, host := range []string{"localhost", "127.0.0.1", "127.0.0.2", "[::ffff:127.0.0.1]", "[::1]", "10.2.3.4", "172.16.0.4", "192.168.2.4", "[fd12::4]"} {
 		if err := ValidateProviderUpstreamBaseURL("http://" + host + ":8000/v1"); err != nil {
@@ -113,6 +115,7 @@ func TestLocalUpstreamAutoModeAndLegacyRestrictions(t *testing.T) {
 }
 
 func TestLocalHTTPHostnameValidationAndPinnedDial(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	useAutoLocalUpstreams(t)
 	for _, host := range []string{"host.docker.internal", "model-server", "models.corp.example"} {
 		t.Run(host, func(t *testing.T) {
@@ -207,6 +210,7 @@ func TestLocalUpstreamProxyBypassAndExplicitProxy(t *testing.T) {
 }
 
 func TestLocalHTTPHostnameRealRequestAndRebinding(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	useAutoLocalUpstreams(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.Host, "model-server:") {

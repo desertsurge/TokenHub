@@ -172,7 +172,7 @@ func normalizeOpenAPIServerURL(raw string, allowHTTP bool) (string, error) {
 	switch strings.ToLower(parsed.Scheme) {
 	case "https":
 	case "http":
-		if !allowHTTP && !isOAuthLoopbackHost(parsed.Hostname()) {
+		if requireHTTPS() && !allowHTTP && !isOAuthLoopbackHost(parsed.Hostname()) {
 			return "", NewHTTPError(http.StatusInternalServerError, "invalid_public_base_url", "Public base URL must use https unless it is loopback")
 		}
 	default:

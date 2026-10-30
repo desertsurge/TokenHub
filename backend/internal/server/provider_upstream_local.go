@@ -87,9 +87,8 @@ func providerHTTPHostname(endpoint *url.URL) bool {
 }
 
 // Resolve plaintext hostnames before any credentials or body can be sent.
-// Every answer must be an authorized local address; mixed public/private DNS
-// answers cannot send plaintext credentials to a public fallback. The direct
-// dialer and proxy use these same answers without resolving the hostname again.
+// Every answer must pass the active HTTPS and address policy. The direct dialer
+// and proxy use these same answers without resolving the hostname again.
 func prepareProviderHTTPRequest(request *http.Request, allowedPrivate []*net.IPNet, lookup upstreamLookupFunc, policies ...providerSyntheticDNSResolver) (*http.Request, error) {
 	if !providerHTTPHostname(request.URL) {
 		return request, nil
@@ -106,13 +105,28 @@ func prepareProviderHTTPRequest(request *http.Request, allowedPrivate []*net.IPN
 			ips = append(ips, address.IP)
 		}
 	}
-	for _, policy := range policies {
-		if providerTargetsAreSynthetic(request.Context(), ips, policy) {
-			return nil, NewHTTPError(http.StatusBadRequest, "provider_base_url_insecure_scheme", "Synthetic DNS provider hostnames require HTTPS")
+	if requireHTTPS() {
+		for _, policy := range policies {
+			if providerTargetsAreSynthetic(request.Context(), ips, policy) {
+				return nil, NewHTTPError(http.StatusBadRequest, "provider_base_url_insecure_scheme", "Synthetic DNS provider hostnames require HTTPS")
+			}
 		}
-	}
-	if !providerUpstreamAutoAccess() || !providerTargetsAreLocal(ips, allowedPrivate) {
-		return nil, NewHTTPError(http.StatusBadRequest, "provider_base_url_insecure_scheme", "HTTP provider hostnames must resolve only to permitted local addresses; public endpoints require HTTPS")
+		if !providerUpstreamAutoAccess() || !providerTargetsAreLocal(ips, allowedPrivate) {
+			return nil, NewHTTPError(http.StatusBadRequest, "provider_base_url_insecure_scheme", "HTTP provider hostnames must resolve only to permitted local addresses; public endpoints require HTTPS")
+		}
+	} else {
+		if len(ips) == 0 {
+			return nil, newProviderBlockedAddressError(nil)
+		}
+		for _, ip := range ips {
+			allowed := providerUpstreamResolvedIPAllowed(request.Context(), ip, allowedPrivate, nil)
+			for _, policy := range policies {
+				allowed = allowed || providerUpstreamResolvedIPAllowed(request.Context(), ip, allowedPrivate, policy)
+			}
+			if !allowed {
+				return nil, newProviderBlockedAddressError([]net.IPAddr{{IP: ip}})
+			}
+		}
 	}
 	return pinProviderDirectTargets(request, ips), nil
 }

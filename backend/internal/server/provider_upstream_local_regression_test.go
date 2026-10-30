@@ -34,6 +34,7 @@ func TestStrictLocalProxyBypassRetainsExplicitLiteralExceptions(t *testing.T) {
 }
 
 func TestSyntheticDNSIsNotAPlaintextOrProxyBypassException(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	useAutoLocalUpstreams(t)
 	for _, pool := range []string{"10.0.0.0/8", "198.18.0.0/15"} {
 		t.Run(pool, func(t *testing.T) {

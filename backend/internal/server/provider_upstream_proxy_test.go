@@ -122,6 +122,7 @@ func TestProviderProxyRejectsDNSRebindingBeforeProxyConnect(t *testing.T) {
 }
 
 func TestProviderProxyRejectsLegacyPublicHTTPBeforeSendingCredentials(t *testing.T) {
+	t.Setenv("TOKENHUB_REQUIRE_HTTPS", "true")
 	var proxyRequests atomic.Int32
 	proxy := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		proxyRequests.Add(1)

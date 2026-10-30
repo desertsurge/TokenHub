@@ -30,6 +30,8 @@ shasum -a 256 background-heartbeat-go.zip
 
 TokenHub Marketplace 是远程 HTTPS JSON 索引。它描述插件及其发布版本，并指向不可变的 ZIP 制品。它与 `plugin-devkit`、`TOKENHUB_PLUGIN_DIR` 都是不同的概念。Marketplace 记录至少应提供制品 URL 和小写 SHA-256 校验和；签名发布还可以提供 Ed25519 签名 URL 和密钥 ID。
 
+索引和制品地址默认允许 HTTP。设置 `TOKENHUB_REQUIRE_HTTPS=true` 后要求 HTTPS；校验和、签名、不可变 URL 与下载地址检查仍生效。
+
 不要让同一个发布 URL 对应不同的文件内容。校验和和签名保护的是确切的压缩包，因此重新构建已发布版本时，必须使用新的版本号和制品。
 
 ## 安装与检查

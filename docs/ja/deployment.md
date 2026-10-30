@@ -384,6 +384,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_MANAGED_UPDATES` | `false` | コンテナデプロイでオンライン更新とロールバックを許可します。ネイティブデプロイでは常に許可されます |
 | `TOKENHUB_INSTALL_ROOT` | `/opt/tokenhub` | 管理対象 Release のオンライン更新とロールバックで使用するインストールルート |
 | `TOKENHUB_TRUSTED_PROXY_CIDRS` | 空 | `X-Forwarded-For`、`X-Forwarded-Host`、`X-Forwarded-Proto` を提供できるプロキシ IP または CIDR（カンマ区切り）。信頼済みプロキシはクライアント値を転送せず、これらのヘッダーを上書きする必要があります |
+| `TOKENHUB_REQUIRE_HTTPS` | `false` | Provider 上流、管理対象 OIDC、OAuth コールバック、プラグイン、更新アセット URL の HTTPS 要件を制御します。既定では HTTP を許可します。`true` にすると既存の内部アドレス例外を残して HTTPS を要求します。URL 構文、ホスト許可リスト、DNS/IP 送信先検証、同一オリジンのリダイレクト制限は維持されます。無効な値は既定値として扱います |
 | `TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE` | `strict` | `strict` は CIDR リストが空のとき RFC1918/ULA リテラルを許可します。ループバックには引き続き `TOKENHUB_PROVIDER_UPSTREAM_ALLOW_LOOPBACK` が必要です。`auto` を設定すると、管理者が設定した内部 DNS 名を許可します。不明な値は厳格モードとして扱います |
 | `TOKENHUB_PROVIDER_UPSTREAM_PROXY_LOCAL` | `false` | ローカル上流は既定で選択済みプロキシを迂回します。`true` でローカル対象にも選択済みポリシーを適用しますが、環境継承モードは引き続き `NO_PROXY` に従います。強制する場合は統一プロキシも選択してください |
 | `TOKENHUB_PROVIDER_UPSTREAM_ALLOWED_CIDRS` | 空 | 任意の制限用プライベート CIDR リスト。空のリストはどちらのモードでも RFC1918/ULA リテラルを許可します。auto ではこれらの範囲が内部 DNS 結果にも適用されます。非空ならプライベートリテラルを制限し、auto では内部 DNS 結果も制限します。無効な非空設定で制限が解除されることはなく、特殊な危険アドレスは許可できません |
@@ -455,6 +456,8 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_RESPONSE_MAX_QUEUED_JOBS` | `1000` | 1 つのデプロイで受け付ける待機中および実行中のバックグラウンド Responses ジョブの上限 |
 | `TOKENHUB_API` | 空 | `tokenhub-migrate` CLI が対象とする Admin API の URL。この CLI のみが読み取り、バックエンドサーバーは読み取りません。`--to` で上書きされます |
 
+`TOKENHUB_REQUIRE_HTTPS` はブラウザーの安全なコンテキストの規則を変更しません。OAuth ログインは Web Crypto を必要とし、通常の公開 HTTP ページでは利用できません。
+
 Compose で任意の Redis 課金コンポーネントを実行する場合は、通常のコマンドに overlay ファイルを追加します。
 
 ```bash
@@ -467,17 +470,17 @@ docker compose --env-file deploy/.env \
 
 管理者はアクセスモードを変えずに `http://192.168.1.10:8000/v1` のような HTTP プライベートリテラルを入力できます。`auto` を設定すると、追加の CIDR 設定なしでループバックと内部 DNS 名も許可され、`http://127.0.0.1:8000/v1`、`host.docker.internal`、Docker サービス名、企業の内部 DNS 名を入力できます。アドレスはバックエンドから到達可能である必要があります。コンテナーのループバックはコンテナー自身を指します。TokenHub が DNS レコード、Docker ネットワーク接続、ホスト別名を自動作成することはありません。
 
-保存時は URL 構文とリテラルアドレスを検証し、DNS 問い合わせは行いません。オフラインのサービスも設定でき、ストレージ操作をブロックしません。送信前に HTTP ホスト名が許可済みローカルアドレスだけへ解決される必要があります。公開アドレスや公開／内部の混合結果は認証情報と本文の送信前に拒否します。直接接続は再度名前解決せず検証済みアドレスを使い、プロキシは元の Host と TLS サーバー名を維持します。metadata、link-local、multicast など危険な特殊用途アドレスは引き続き拒否します。同じスキームと authority へのリダイレクトは内部サービスでも許可し、クロスオリジンのリダイレクトは拒否します。
+保存時は URL 構文とリテラルアドレスを検証し、DNS 問い合わせは行いません。オフラインのサービスも設定でき、ストレージ操作をブロックしません。`TOKENHUB_REQUIRE_HTTPS=true` の場合、HTTP ホスト名は許可済みローカルアドレスだけへ解決される必要があり、公開アドレスや公開／内部の混合結果は送信前に拒否します。`false` の場合は公開 HTTP の IP リテラルとホスト名を許可しますが、禁止された DNS/IP 宛先は引き続き拒否します。直接接続は再度名前解決せず検証済みアドレスを使い、プロキシは元の Host と TLS サーバー名を維持します。metadata、link-local、multicast など危険な特殊用途アドレスは引き続き拒否します。同じスキームと authority へのリダイレクトは内部サービスでも許可し、クロスオリジンのリダイレクトは拒否します。
 
 HTTP ホスト名をプロキシ経由で接続する場合、検証済み IP への CONNECT を使用し、トンネル内で元の Host を維持します。プロキシはモデルサービスのポートへの CONNECT を許可する必要があります。拒否時に直接接続へフォールバックしません。
 
-strict モードが既定値です。RFC1918/ULA リテラルは許可され、localhost には引き続き `TOKENHUB_PROVIDER_UPSTREAM_ALLOW_LOOPBACK` が必要です。内部 DNS 名を許可するには、運用者が `TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE=auto` を設定する必要があります。どちらのモードでも非空のプライベートリストは制限を維持し、すべてのプライベートリテラルを拒否する場合も同様です。ローカル通信も選択済みプロキシに従わせる場合は、別途 `TOKENHUB_PROVIDER_UPSTREAM_PROXY_LOCAL=true` を指定します。これらの設定にはバックエンドの再起動またはコンテナーの再作成が必要です。
+strict モードが既定値です。RFC1918/ULA リテラルは許可され、localhost には引き続き `TOKENHUB_PROVIDER_UPSTREAM_ALLOW_LOOPBACK` が必要です。内部 DNS 名を許可するには、運用者が `TOKENHUB_PROVIDER_UPSTREAM_ACCESS_MODE=auto` を設定する必要があります。どちらのモードでも非空のプライベートリストは制限を維持し、すべてのプライベートリテラルを拒否する場合も同様です。ローカル通信も選択済みプロキシに従わせる場合は、別途 `TOKENHUB_PROVIDER_UPSTREAM_PROXY_LOCAL=true` を指定します。`TOKENHUB_REQUIRE_HTTPS` を含むこれらの設定にはバックエンドの再起動またはコンテナーの再作成が必要です。
 
 再起動せずに **システム設定 → 基本設定 → Provider エグレスモード** で送信経路を変更できます。アップグレード時の既定値である「環境変数のプロキシを継承」は、プロセス起動時に取得した `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` を使用します。「直接接続」はこれらを無視し、「統一プロキシを使用」は 1 つの HTTP または HTTPS forward proxy を推論、ストリーミング、画像、モデル検出、Provider catalog 更新、Quota、Provider 資格情報更新を含むすべての Provider 上流チャネルに適用します。ID ログイン、通知、Tracing、バージョン更新には適用されません。
 
 統一プロキシは任意の Basic 認証に対応し、パスワードは暗号化して保存され、API とコンソールではマスクされます。プロキシ設定の保存時はその構文だけを検証します。**プロキシ接続をテスト** は現在の未保存フォームと既存 Provider を使い、Provider 資格情報やモデルリクエストを送信せず、プロキシ TCP/TLS、認証、CONNECT、システム CA による対象 TLS だけを検証します。どのプロキシモードでも Provider と Provider Resource の Base URL には従来の保存時スキームおよびリテラルアドレス検証が適用されます。metadata など常に拒否される対象は引き続き拒否され、ローカル対象は上記の auto/strict ポリシーに従います。プロキシ経由の各リクエストの前に、TokenHub は元の Provider ホスト名をローカルで解決し、設定済みのローカルアドレスおよび特殊用途アドレスのポリシーを適用します。そのうえで元の HTTP Host と TLS サーバー名を維持したまま、プロキシリクエストまたは CONNECT トンネルを検証済み IP に固定します。直接接続と `NO_PROXY` に一致するリクエストも、保護されたダイヤル経路で同じアドレスポリシーを適用します。プロキシ設定、認証、接続、タイムアウト、HTTPS CONNECT の失敗はプラットフォームの送信障害として扱われ、Provider リソースへのペナルティやルート failover は発生しません。平文 HTTP プロキシリクエストの場合、HTTP エラー応答はプロキシまたは Provider のどちらから返される可能性があるため、通常の上流エラー処理を維持します。レプリカは共有設定を 5 秒以内に再読み込みし、データベースの一時的な読み取り失敗時は直前の有効設定を保持します。
 
-バックエンドが Fake-IP DNS を使用する場合は、**システム設定 → 基本設定 → Synthetic DNS / Fake-IP 範囲** に実際のプールを設定します。この独立した例外は既定で無効で、DNS 結果だけに適用され、Provider の IP リテラルには適用されません。`198.18.0.0/15` はベンチマーク用であり、すべてのプロキシが使用する Fake-IP 専用範囲ではありません。プライベート synthetic プールには別途明示的な信頼設定が必要です。有効な synthetic プールに一致するホスト名は、その IP が RFC1918/ULA でも HTTPS が必須で、ローカル通信の自動プロキシ迂回を受けません。実際のローカルサービスは上記の auto/strict ポリシーに独立して従います。Synthetic 例外で loopback、link-local、metadata、multicast、保護された NAT64 対象を許可することはできません。
+バックエンドが Fake-IP DNS を使用する場合は、**システム設定 → 基本設定 → Synthetic DNS / Fake-IP 範囲** に実際のプールを設定します。この独立した例外は既定で無効で、DNS 結果だけに適用され、Provider の IP リテラルには適用されません。`198.18.0.0/15` はベンチマーク用であり、すべてのプロキシが使用する Fake-IP 専用範囲ではありません。プライベート synthetic プールには別途明示的な信頼設定が必要です。有効な synthetic プールに一致するホスト名は `TOKENHUB_REQUIRE_HTTPS=true` の場合に HTTPS が必須で、ローカル通信の自動プロキシ迂回を受けません。実際のローカルサービスは上記の auto/strict ポリシーに独立して従います。Synthetic 例外で loopback、link-local、metadata、multicast、保護された NAT64 対象を許可することはできません。
 
 モデルカタログの接続失敗は、DNS アドレスの拒否（`provider_models_address_blocked`）、名前解決の失敗（`provider_models_dns_failed`）、タイムアウト（`provider_models_timeout`）、TLS 証明書検証の失敗（`provider_models_tls_failed`）を区別します。Fake-IP の解決結果が拒否された場合は、実際のプロキシアドレスプールを確認してから既存の例外を設定してください。エラー応答は固定メッセージを使用し、生の通信エラーや認証情報を公開しません。 アドレス拒否エラーは `error.details.blocked_ips` に正規化された拒否 IP を含め、プレイグラウンドの失敗イベントは `error_details.blocked_ips` に同じ情報を含めます。コンソールには拒否アドレスと設定場所が表示されます。設定前に実際のプロキシプールを確認してください。拒否アドレスが自動的に信頼されることはありません。
 

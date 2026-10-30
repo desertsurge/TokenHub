@@ -399,7 +399,7 @@ func validGatewayManagedProvider(provider AdminResource) bool {
 func validGatewayManagedOIDCURL(raw string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	return err == nil && parsed.Host != "" && parsed.User == nil && parsed.Fragment == "" &&
-		(parsed.Scheme == "https" || parsed.Scheme == "http" && isOAuthLoopbackHost(parsed.Hostname()))
+		(parsed.Scheme == "https" || parsed.Scheme == "http" && (!requireHTTPS() || isOAuthLoopbackHost(parsed.Hostname())))
 }
 
 func identityProviderIconKey(provider AdminResource) string {
@@ -550,7 +550,7 @@ func validateOAuthCallbackURL(raw string) (string, error) {
 	if !strings.EqualFold(target.Scheme, "http") && !strings.EqualFold(target.Scheme, "https") {
 		return "", NewHTTPError(400, "invalid_redirect_uri", "OAuth callback URL must use http or https")
 	}
-	if strings.EqualFold(target.Scheme, "http") && !isOAuthLoopbackHost(target.Hostname()) {
+	if strings.EqualFold(target.Scheme, "http") && requireHTTPS() && !isOAuthLoopbackHost(target.Hostname()) {
 		return "", NewHTTPError(400, "insecure_redirect_uri", "OAuth callback URL must use https unless it is loopback")
 	}
 	if target.Fragment != "" {
