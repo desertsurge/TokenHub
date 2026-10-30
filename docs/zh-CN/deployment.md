@@ -181,6 +181,7 @@ cp deploy/.env.example deploy/.env
 - `TOKENHUB_SECRET_KEY`：后端加密根密钥。PostgreSQL 和已有 SQLite 数据库必须配置至少 32 字节的稳定值。全新文件型 SQLite 部署可以保留占位值，TokenHub 会在数据库旁生成权限为 `0600` 的密钥文件。
 - `TOKENHUB_IMAGE_TAG`：托管 TokenHub 镜像标签，默认 `latest`。
 - `TOKENHUB_PUBLIC_BASE_URL`：展示给用户的后端访问地址。
+- `TOKENHUB_OAUTH_CA_CERT_FILE`：可选的 PEM CA 证书链路径，用于 backend 容器访问私有或自签 OIDC HTTPS 端点。证书校验保持开启；文件必须先挂载到容器内。
 - `TOKENHUB_API_BASE_URL`：浏览器管理后台访问后端的地址，由前端服务在运行时读取。旧变量 `NEXT_PUBLIC_API_BASE_URL` 保留一个兼容周期，作为回退配置。
 - `TOKENHUB_BACKEND_PORT`：后端宿主机端口，默认 `8080`。
 - `TOKENHUB_FRONTEND_PORT`：管理后台宿主机端口，默认 `3000`。
@@ -379,6 +380,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_ENV` | `prod` | 运行环境标识 |
 | `TOKENHUB_HTTP_ADDR` | `:8080` | 后端监听地址 |
 | `TOKENHUB_PUBLIC_BASE_URL` | `http://localhost:8080` | 展示给用户的后端地址 |
+| `TOKENHUB_OAUTH_CA_CERT_FILE` | 空 | 私有或自签 OIDC HTTPS 端点使用的 PEM CA 证书链路径；证书校验保持开启，文件必须挂载到 backend 容器 |
 | `TOKENHUB_RELEASE_REPOSITORY` | `astaxie/TokenHub` | 版本检查使用的可信公开 GitHub 仓库，格式为 `owner/repository` |
 | `TOKENHUB_DEPLOYMENT_TYPE` | 编译期取值 | 覆盖二进制中编译的部署类型：`source`、`container` 或 `native`。Compose 文件设置为 `container` |
 | `TOKENHUB_MANAGED_UPDATES` | `false` | 允许容器部署执行在线更新与回退；原生部署始终允许 |

@@ -1016,3 +1016,17 @@ func TestSecureCookieDetectionUsesCallbackScheme(t *testing.T) {
 		t.Fatalf("TLS request fallback = %q", got)
 	}
 }
+
+func TestOAuthUserSyncErrorCodePreservesManagedIdentityDiagnostics(t *testing.T) {
+	for _, code := range []string{
+		"gateway_identity_invalid", "gateway_user_not_synced", "gateway_membership_inactive",
+		"gateway_identity_conflict", "gateway_user_missing", "gateway_user_inactive", "gateway_user_conflict",
+	} {
+		if got := oauthUserSyncErrorCode(NewHTTPError(http.StatusForbidden, code, "diagnostic")); got != code {
+			t.Fatalf("managed identity error code %q was reduced to %q", code, got)
+		}
+	}
+	if got := oauthUserSyncErrorCode(NewHTTPError(http.StatusBadRequest, "database_error", "diagnostic")); got != "user_sync_failed" {
+		t.Fatalf("unexpected internal sync error code %q", got)
+	}
+}

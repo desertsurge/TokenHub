@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -232,7 +235,7 @@ func (s *Server) handleAdminOAuthCallback(w http.ResponseWriter, r *http.Request
 	}
 	var verifiedIDTokenClaims map[string]any
 	if strings.EqualFold(stringField(provider.Fields, "gateway_managed"), "true") {
-		verifiedIDTokenClaims, err = verifyManagedOIDCToken(r.Context(), provider, token.IDToken, flow.OIDCNonce)
+		verifiedIDTokenClaims, err = verifyManagedOIDCToken(r.Context(), provider, token.IDToken, flow.OIDCNonce, s.config.OAuthCACertFile)
 		if err != nil {
 			log.Printf("managed oidc token verification failed provider_id=%s error=%v", provider.ID, err)
 			http.Redirect(w, r, oauthRedirectWithError(flow.ReturnURL, "id_token_verification_failed"), http.StatusFound)
@@ -257,7 +260,7 @@ func (s *Server) handleAdminOAuthCallback(w http.ResponseWriter, r *http.Request
 	}
 	user, err := s.upsertOAuthAdminUser(provider, claims)
 	if err != nil {
-		http.Redirect(w, r, oauthRedirectWithError(flow.ReturnURL, "user_sync_failed"), http.StatusFound)
+		http.Redirect(w, r, oauthRedirectWithError(flow.ReturnURL, oauthUserSyncErrorCode(err)), http.StatusFound)
 		return
 	}
 	exchangeCode, err := randomHex(32)
@@ -689,7 +692,7 @@ func (s *Server) exchangeOAuthCode(ctx context.Context, provider AdminResource, 
 	if codeVerifier != "" {
 		form.Set("code_verifier", codeVerifier)
 	}
-	token, detail, err := requestOAuthToken(ctx, tokenURL, form, "", "")
+	token, detail, err := requestOAuthToken(ctx, tokenURL, form, "", "", s.config.OAuthCACertFile)
 	if err == nil {
 		if strings.TrimSpace(token.AccessToken) == "" {
 			return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_missing", "OAuth token endpoint did not return an access token")
@@ -707,7 +710,7 @@ func (s *Server) exchangeOAuthCode(ctx context.Context, provider AdminResource, 
 	if codeVerifier != "" {
 		basicForm.Set("code_verifier", codeVerifier)
 	}
-	token, _, err = requestOAuthToken(ctx, tokenURL, basicForm, clientID, clientSecret)
+	token, _, err = requestOAuthToken(ctx, tokenURL, basicForm, clientID, clientSecret, s.config.OAuthCACertFile)
 	if err != nil {
 		return oauthTokenResponse{}, err
 	}
@@ -717,7 +720,7 @@ func (s *Server) exchangeOAuthCode(ctx context.Context, provider AdminResource, 
 	return token, nil
 }
 
-func requestOAuthToken(ctx context.Context, tokenURL string, form url.Values, basicClientID string, basicSecret string) (oauthTokenResponse, string, error) {
+func requestOAuthToken(ctx context.Context, tokenURL string, form url.Values, basicClientID string, basicSecret string, caCertFile ...string) (oauthTokenResponse, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return oauthTokenResponse{}, "", err
@@ -727,7 +730,11 @@ func requestOAuthToken(ctx context.Context, tokenURL string, form url.Values, ba
 	if basicClientID != "" || basicSecret != "" {
 		req.SetBasicAuth(basicClientID, basicSecret)
 	}
-	resp, err := oauthBackchannelHTTPClient(15 * time.Second).Do(req)
+	client, err := oauthBackchannelHTTPClient(15*time.Second, caCertFile...)
+	if err != nil {
+		return oauthTokenResponse{}, "", err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return oauthTokenResponse{}, "", err
 	}
@@ -761,7 +768,11 @@ func (s *Server) fetchOAuthUserInfo(ctx context.Context, provider AdminResource,
 	}
 	req.Header.Set("accept", "application/json")
 	req.Header.Set("authorization", "Bearer "+accessToken)
-	resp, err := oauthBackchannelHTTPClient(15 * time.Second).Do(req)
+	client, err := oauthBackchannelHTTPClient(15*time.Second, s.config.OAuthCACertFile)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -777,13 +788,59 @@ func (s *Server) fetchOAuthUserInfo(ctx context.Context, provider AdminResource,
 	return claims, nil
 }
 
-func oauthBackchannelHTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{
+func oauthBackchannelHTTPClient(timeout time.Duration, caCertFile ...string) (*http.Client, error) {
+	configuredCA := os.Getenv("TOKENHUB_OAUTH_CA_CERT_FILE")
+	if len(caCertFile) > 0 {
+		configuredCA = caCertFile[0]
+	}
+	rootCAs, err := loadOAuthRootCAs(configuredCA)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{
 		Timeout: timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
+	if rootCAs != nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: rootCAs}
+		client.Transport = transport
+	}
+	return client, nil
+}
+
+func loadOAuthRootCAs(path string) (*x509.CertPool, error) {
+	configured := strings.TrimSpace(path)
+	if configured == "" {
+		return nil, nil
+	}
+	contents, err := os.ReadFile(configured)
+	if err != nil {
+		return nil, fmt.Errorf("invalid TOKENHUB_OAUTH_CA_CERT_FILE: cannot read PEM file: %w", err)
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("invalid TOKENHUB_OAUTH_CA_CERT_FILE: cannot load system roots: %w", err)
+	}
+	if roots == nil {
+		roots = x509.NewCertPool()
+	}
+	if !roots.AppendCertsFromPEM(contents) {
+		return nil, fmt.Errorf("invalid TOKENHUB_OAUTH_CA_CERT_FILE: PEM file contains no certificates")
+	}
+	return roots, nil
+}
+
+func oauthUserSyncErrorCode(err error) string {
+	if httpErr := AsHTTPError(err); httpErr != nil {
+		switch httpErr.Code {
+		case "gateway_identity_invalid", "gateway_user_not_synced", "gateway_membership_inactive", "gateway_identity_conflict", "gateway_user_missing", "gateway_user_inactive", "gateway_user_conflict":
+			return httpErr.Code
+		}
+	}
+	return "user_sync_failed"
 }
 
 func (s *Server) upsertOAuthAdminUser(provider AdminResource, claims map[string]any) (AdminUser, error) {

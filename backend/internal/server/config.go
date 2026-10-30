@@ -31,6 +31,7 @@ type Config struct {
 	IntegrationContextSecret string
 	BootstrapAdminPassword   string
 	PublicBaseURL            string
+	OAuthCACertFile          string
 	DatabaseURL              string
 	SQLiteBackupDir          string
 	ModelCatalogFile         string
@@ -154,6 +155,7 @@ func ConfigFromEnv() Config {
 		IntegrationContextSecret:         getenv("TOKENHUB_INTEGRATION_CONTEXT_SECRET", ""),
 		BootstrapAdminPassword:           getenv("TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD", "admin123456"),
 		PublicBaseURL:                    getenv("TOKENHUB_PUBLIC_BASE_URL", ""),
+		OAuthCACertFile:                  getenv("TOKENHUB_OAUTH_CA_CERT_FILE", ""),
 		DatabaseURL:                      resolveDatabaseURL(),
 		SQLiteBackupDir:                  getenv("TOKENHUB_SQLITE_BACKUP_DIR", defaultSQLiteBackupDir()),
 		ModelCatalogFile:                 getenv("TOKENHUB_MODEL_CATALOG_FILE", defaultModelCatalogFile()),
@@ -212,6 +214,9 @@ func ConfigFromEnv() Config {
 }
 
 func (c Config) ValidateForStartup() error {
+	if _, err := loadOAuthRootCAs(c.OAuthCACertFile); err != nil {
+		return err
+	}
 	if err := c.validateSemanticRouting(); err != nil {
 		return err
 	}

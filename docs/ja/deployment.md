@@ -181,6 +181,7 @@ cp deploy/.env.example deploy/.env
 - `TOKENHUB_SECRET_KEY`: バックエンド暗号化ルートキー。PostgreSQL と既存の SQLite データベースでは、32 バイト以上の安定した値が必須です。新規のファイル型 SQLite デプロイでは、プレースホルダーのままにするとデータベースの隣に権限 `0600` のキーファイルを生成します。
 - `TOKENHUB_IMAGE_TAG`: 管理対象 TokenHub イメージのタグ。デフォルトは `latest`。
 - `TOKENHUB_PUBLIC_BASE_URL`: ユーザーに表示するバックエンド URL。
+- `TOKENHUB_OAUTH_CA_CERT_FILE`: プライベートまたは自己署名 OIDC HTTPS エンドポイント用の任意の PEM CA バンドルパス。証明書検証は有効なままで、ファイルを backend コンテナ内にマウントする必要があります。
 - `TOKENHUB_API_BASE_URL`: ブラウザの管理コンソールが使用するバックエンド URL。フロントエンドサーバーが実行時に読み取ります。非推奨の `NEXT_PUBLIC_API_BASE_URL` は、1 回の互換期間に限りフォールバックとして残します。
 - `TOKENHUB_BACKEND_PORT`: バックエンドのホスト側ポート。デフォルトは `8080`。
 - `TOKENHUB_FRONTEND_PORT`: 管理コンソールのホスト側ポート。デフォルトは `3000`。
@@ -379,6 +380,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_ENV` | `prod` | ランタイム環境名 |
 | `TOKENHUB_HTTP_ADDR` | `:8080` | バックエンド待受アドレス |
 | `TOKENHUB_PUBLIC_BASE_URL` | `http://localhost:8080` | ユーザーに表示するバックエンド URL |
+| `TOKENHUB_OAUTH_CA_CERT_FILE` | 空 | プライベートまたは自己署名 OIDC HTTPS エンドポイント用の PEM CA バンドルパス。証明書検証は有効なままで、ファイルを backend コンテナにマウントする必要があります |
 | `TOKENHUB_RELEASE_REPOSITORY` | `astaxie/TokenHub` | バージョン確認に使用する信頼済み公開 GitHub リポジトリ。形式は `owner/repository` |
 | `TOKENHUB_DEPLOYMENT_TYPE` | ビルド時の値 | バイナリに埋め込まれたデプロイ種別を上書きします: `source`、`container`、`native`。Compose ファイルは `container` を設定します |
 | `TOKENHUB_MANAGED_UPDATES` | `false` | コンテナデプロイでオンライン更新とロールバックを許可します。ネイティブデプロイでは常に許可されます |

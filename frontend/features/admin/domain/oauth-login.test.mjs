@@ -15,6 +15,7 @@ const {
   resolvePendingOAuthLoginResult,
   savePendingOAuthLoginState,
 } = await importTypeScript(new URL("./oauth-login.ts", import.meta.url));
+const { parseProviderAccountOAuthResult } = await importTypeScript(new URL("../core/session.tsx", import.meta.url));
 
 const codeVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 
@@ -88,6 +89,12 @@ test("creates an S256 PKCE pair and OAuth start URL", async () => {
   assert.equal(startURL.searchParams.get("return_url"), "https://console.example.test/overview");
   assert.equal(startURL.searchParams.get("code_challenge"), pair.codeChallenge);
   assert.equal(startURL.searchParams.get("code_challenge_method"), "S256");
+});
+
+test("does not treat administrator OAuth errors as provider account callbacks", () => {
+  assert.equal(parseProviderAccountOAuthResult("#oauth_error=gateway_user_not_synced"), null);
+  assert.equal(parseProviderAccountOAuthResult("#provider_account_oauth=1&oauth_error=provider_denied").error, "provider_denied");
+  assert.equal(parseProviderAccountOAuthResult("#provider_account_oauth_error=provider_denied").error, "provider_denied");
 });
 
 test("explains when secure browser crypto is unavailable", () => {

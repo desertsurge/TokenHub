@@ -114,6 +114,20 @@ func TestConfigParsesTrustedProxyCIDRs(t *testing.T) {
 	}
 }
 
+func TestOAuthCACertFileIsReadFromEnvironmentByBackchannelClient(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oidc-ca.pem")
+	if err := os.WriteFile(path, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TOKENHUB_OAUTH_CA_CERT_FILE", path)
+	if roots, err := loadOAuthRootCAs(path); roots != nil || err == nil {
+		t.Fatalf("invalid OAuth CA bundle must fail: roots=%v err=%v", roots, err)
+	}
+	if err := ConfigFromEnv().ValidateForStartup(); err == nil || !strings.Contains(err.Error(), "TOKENHUB_OAUTH_CA_CERT_FILE") {
+		t.Fatalf("invalid OAuth CA bundle must fail startup: %v", err)
+	}
+}
+
 func TestConfigParsesClusterCoordinationSettings(t *testing.T) {
 	t.Setenv("TOKENHUB_CORS_ALLOWED_ORIGINS", "https://console.example.com,https://admin.example.com")
 	t.Setenv("TOKENHUB_IN_FLIGHT_LEASE_TTL_SECONDS", "45")

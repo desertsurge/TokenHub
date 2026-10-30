@@ -181,6 +181,7 @@ Review `deploy/.env` before starting:
 - `TOKENHUB_SECRET_KEY`: Backend encryption root key. PostgreSQL and existing SQLite databases require at least 32 stable bytes. A brand-new file-backed SQLite deployment can leave the placeholder so TokenHub generates a `0600` key file beside the database.
 - `TOKENHUB_IMAGE_TAG`: Managed TokenHub image tag. Default: `latest`.
 - `TOKENHUB_PUBLIC_BASE_URL`: Public backend URL shown to users.
+- `TOKENHUB_OAUTH_CA_CERT_FILE`: Optional PEM CA bundle mounted into the backend for private or self-signed OIDC HTTPS endpoints. Certificate verification remains enabled.
 - `TOKENHUB_API_BASE_URL`: Backend URL used by the browser admin console. The frontend server reads it at runtime. The deprecated `NEXT_PUBLIC_API_BASE_URL` remains a fallback for one compatibility cycle.
 - `TOKENHUB_BACKEND_PORT`: Host port for the backend. Default: `8080`.
 - `TOKENHUB_FRONTEND_PORT`: Host port for the admin console. Default: `3000`.
@@ -379,6 +380,7 @@ Options: `--rebuild`, `--reset` to drop the local database, `--backend-port N`, 
 | `TOKENHUB_ENV` | `prod` | Runtime environment label |
 | `TOKENHUB_HTTP_ADDR` | `:8080` | Backend listen address |
 | `TOKENHUB_PUBLIC_BASE_URL` | `http://localhost:8080` | Public backend URL shown to users |
+| `TOKENHUB_OAUTH_CA_CERT_FILE` | empty | PEM CA bundle for private/self-signed OIDC HTTPS endpoints; verification remains enabled |
 | `TOKENHUB_RELEASE_REPOSITORY` | `astaxie/TokenHub` | Trusted public GitHub repository used for version checks, in `owner/repository` form |
 | `TOKENHUB_DEPLOYMENT_TYPE` | build-time value | Overrides the deployment type compiled into the binary: `source`, `container` or `native`. The Compose files set `container` |
 | `TOKENHUB_MANAGED_UPDATES` | `false` | Allows a container deployment to perform online update and rollback. A native deployment always allows it |

@@ -34,7 +34,7 @@ type oidcJWKS struct {
 	Keys []oidcJSONWebKey `json:"keys"`
 }
 
-func verifyManagedOIDCToken(ctx context.Context, provider AdminResource, rawToken string, expectedNonce string) (map[string]any, error) {
+func verifyManagedOIDCToken(ctx context.Context, provider AdminResource, rawToken string, expectedNonce string, caCertFile ...string) (map[string]any, error) {
 	if strings.TrimSpace(rawToken) == "" {
 		return nil, NewHTTPError(http.StatusForbidden, "oidc_id_token_missing", "Managed OIDC provider did not return an ID token")
 	}
@@ -72,11 +72,11 @@ func verifyManagedOIDCToken(ctx context.Context, provider AdminResource, rawToke
 	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
 		return nil, NewHTTPError(http.StatusForbidden, "oidc_id_token_invalid", "Managed OIDC ID token claims are invalid")
 	}
-	jwksURL, err := managedOIDCJWKSURL(ctx, provider)
+	jwksURL, err := managedOIDCJWKSURL(ctx, provider, caCertFile...)
 	if err != nil {
 		return nil, err
 	}
-	keys, err := fetchOIDCJWKS(ctx, jwksURL)
+	keys, err := fetchOIDCJWKS(ctx, jwksURL, caCertFile...)
 	if err != nil {
 		return nil, NewHTTPError(http.StatusBadGateway, "oidc_jwks_unavailable", "Managed OIDC signing keys are unavailable")
 	}
@@ -93,7 +93,7 @@ func verifyManagedOIDCToken(ctx context.Context, provider AdminResource, rawToke
 	return claims, nil
 }
 
-func managedOIDCJWKSURL(ctx context.Context, provider AdminResource) (string, error) {
+func managedOIDCJWKSURL(ctx context.Context, provider AdminResource, caCertFile ...string) (string, error) {
 	configured := strings.TrimSpace(stringField(provider.Fields, "jwks_url"))
 	if configured == "" {
 		configured = strings.TrimSpace(stringField(provider.Fields, "jwks_uri"))
@@ -115,7 +115,11 @@ func managedOIDCJWKSURL(ctx context.Context, provider AdminResource) (string, er
 	if err != nil {
 		return "", err
 	}
-	response, err := oauthBackchannelHTTPClient(10 * time.Second).Do(request)
+	client, err := oauthBackchannelHTTPClient(10*time.Second, caCertFile...)
+	if err != nil {
+		return "", err
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return "", err
 	}
@@ -136,13 +140,17 @@ func managedOIDCJWKSURL(ctx context.Context, provider AdminResource) (string, er
 	return document.JWKSURI, nil
 }
 
-func fetchOIDCJWKS(ctx context.Context, jwksURL string) ([]oidcJSONWebKey, error) {
+func fetchOIDCJWKS(ctx context.Context, jwksURL string, caCertFile ...string) ([]oidcJSONWebKey, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Set("accept", "application/json")
-	response, err := oauthBackchannelHTTPClient(10 * time.Second).Do(request)
+	client, err := oauthBackchannelHTTPClient(10*time.Second, caCertFile...)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, err
 	}
