@@ -62,7 +62,11 @@ func (r *Runner) nowText() string {
 
 // loadApplied reads the ledger ordered by version.
 func (r *Runner) loadApplied(ctx context.Context) ([]Applied, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT version, name, phase, checksum, dirty, applied_at, applied_release FROM schema_migrations ORDER BY version`)
+	return loadAppliedOn(ctx, r.db)
+}
+
+func loadAppliedOn(ctx context.Context, db Execer) ([]Applied, error) {
+	rows, err := db.QueryContext(ctx, `SELECT version, name, phase, checksum, dirty, applied_at, applied_release FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		return nil, fmt.Errorf("dbschema: load ledger: %w", err)
 	}

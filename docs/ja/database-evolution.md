@@ -20,6 +20,7 @@ TokenHub は明示的かつフォワードオンリーなマイグレーショ�
 メインバイナリは `db` サブコマンドを提供します。
 
 ```bash
+tokenhub db preflight                               # PostgreSQL 台帳と未実行移行の読み取り専用検査
 tokenhub db status                                  # 台帳、バックフィル、稼働中インスタンス
 tokenhub db verify                                  # 台帳チェックサム + 意味的スキーマ検証
 tokenhub db prepare                                 # 起動互換の採用と expand を実行（サービス提供なし）
@@ -28,6 +29,8 @@ tokenhub db repair --version <n>                    # dirty マイグレーシ�
 tokenhub db contract --dry-run                      # 収縮マイグレーションの事前確認
 tokenhub db contract --backup-reference <ref> --maintenance
 ```
+
+`db preflight` には PostgreSQL と既存の採用ベースラインが必要です。チェックサムと dirty 状態を検査し、未実行の expand と contract を表示します。台帳の初期化、バックフィル、参照スキーマの作成は行いません。アップグレードの確認前に実行し、移行後の完全なスキーマ検証には `db verify` を使用します。
 
 データベース接続は `TOKENHUB_DATABASE_URL`（またはデフォルトの SQLite パス）から解決されます。
 

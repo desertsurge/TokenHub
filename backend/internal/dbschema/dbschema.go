@@ -425,10 +425,12 @@ func (r *Runner) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	return r.statusFromApplied(applied), nil
+}
+
+func (r *Runner) statusFromApplied(applied []Applied) Status {
 	status := Status{Applied: applied}
-	appliedSet := make(map[int64]bool, len(applied))
 	for _, row := range applied {
-		appliedSet[row.Version] = true
 		if row.Version > status.CurrentVersion {
 			status.CurrentVersion = row.Version
 		}
@@ -444,7 +446,7 @@ func (r *Runner) Status(ctx context.Context) (Status, error) {
 	}
 	status.PendingExpand = r.pendingByPhase(applied, PhaseExpand)
 	status.PendingContract = r.pendingByPhase(applied, PhaseContract)
-	return status, nil
+	return status
 }
 
 // pendingByPhase returns the registry migrations of the given phase that are

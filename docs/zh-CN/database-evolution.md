@@ -20,6 +20,7 @@ TokenHub 使用显式、只前进的迁移演进数据库。本文说明演进�
 主二进制提供 `db` 子命令：
 
 ```bash
+tokenhub db preflight                               # PostgreSQL 只读账本与待执行迁移检查
 tokenhub db status                                  # ledger、回填、在线实例
 tokenhub db verify                                  # ledger 校验和 + 语义校验
 tokenhub db prepare                                 # 以启动兼容方式采纳并执行扩展迁移，但不提供服务
@@ -28,6 +29,8 @@ tokenhub db repair --version <n>                    # 清除 dirty 迁移（仅�
 tokenhub db contract --dry-run                      # 收缩迁移预检
 tokenhub db contract --backup-reference <ref> --maintenance
 ```
+
+`db preflight` 要求使用 PostgreSQL 且已有采用基线。它校验迁移 checksum 和 dirty 状态，报告待执行的 expand 和 contract，不初始化账本、运行回填或创建参考 schema。确认升级前运行该命令；迁移后再用 `db verify` 做完整结构校验。
 
 数据库连接取自 `TOKENHUB_DATABASE_URL`（或默认 SQLite 路径）。
 

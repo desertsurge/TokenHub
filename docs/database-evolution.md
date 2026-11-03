@@ -21,6 +21,7 @@ The main binary ships a `db` subcommand:
 
 ```bash
 tokenhub db status                                  # ledger, backfills, live instances
+tokenhub db preflight                               # read-only PostgreSQL ledger and pending migrations
 tokenhub db verify                                  # ledger checksums + semantic schema check
 tokenhub db prepare                                 # startup-compatible adoption + expands, without serving
 tokenhub db migrate                                 # apply pending expand migrations
@@ -30,6 +31,8 @@ tokenhub db contract --backup-reference <ref> --maintenance
 ```
 
 The database is resolved from `TOKENHUB_DATABASE_URL` (or the default SQLite path).
+
+`db preflight` requires PostgreSQL and an existing adoption baseline. It checks migration checksums and dirty state and reports pending expand and contract migrations without initializing the ledger, running backfills, or creating a schema reference. Run it before confirming an upgrade; use `db verify` separately for the full schema check after migration.
 
 `contract` requires all of the following before it executes anything: every data backfill complete, no live instance heartbeats, an operator-verified backup reference, and an explicit maintenance assertion. For SQLite, create the built-in backup first; for PostgreSQL, provide the external backup reference that you verified yourself.
 

@@ -66,6 +66,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "status":
 		err = runStatus(ctx, config, stdout)
+	case "preflight":
+		err = runPreflight(ctx, args[1:], config, stdout)
 	case "verify":
 		err = runVerify(ctx, config, stdout)
 	case "prepare":
@@ -101,7 +103,15 @@ func runStatus(ctx context.Context, config server.Config, stdout io.Writer) erro
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "driver:              %s\n", s.driver)
+	printMigrationStatus(stdout, s.driver, status)
+	if err := printBackfillStatus(ctx, s, stdout); err != nil {
+		return err
+	}
+	return printHeartbeatStatus(ctx, s.db, stdout)
+}
+
+func printMigrationStatus(stdout io.Writer, driver string, status dbschema.Status) {
+	_, _ = fmt.Fprintf(stdout, "driver:              %s\n", driver)
 	_, _ = fmt.Fprintf(stdout, "baseline recorded:   %t\n", status.BaselineRecorded)
 	_, _ = fmt.Fprintf(stdout, "current version:     %d\n", status.CurrentVersion)
 	_, _ = fmt.Fprintf(stdout, "dirty:               %t", status.Dirty)
@@ -117,10 +127,6 @@ func runStatus(ctx context.Context, config server.Config, stdout io.Writer) erro
 	for _, m := range status.PendingContract {
 		_, _ = fmt.Fprintf(stdout, "  %d %s\n", m.Version, m.Name)
 	}
-	if err := printBackfillStatus(ctx, s, stdout); err != nil {
-		return err
-	}
-	return printHeartbeatStatus(ctx, s.db, stdout)
 }
 
 func printBackfillStatus(ctx context.Context, s *session, stdout io.Writer) error {
@@ -411,6 +417,7 @@ func usage(w io.Writer) {
 
 commands:
   status                      show ledger, backfill, and instance state
+  preflight                   inspect the migration ledger in read-only mode
   verify                      verify ledger checksums and semantic schema
   prepare                     adopt a supported legacy database and apply expands
   migrate                     apply pending expand migrations
