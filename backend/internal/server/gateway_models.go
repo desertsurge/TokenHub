@@ -50,7 +50,19 @@ func (s *Server) handleGatewayModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+	routes, err := listGatewayRoutesForIntegration(s.store)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	routedModels := make(map[string]bool, len(routes))
+	for _, route := range routes {
+		routedModels[route.ModelName] = true
+	}
 	for _, model := range models {
+		if !gatewayModelIsConfigured(model, routedModels) {
+			continue
+		}
 		if name != "" && !strings.Contains(strings.ToLower(model.Name), name) {
 			continue
 		}
@@ -83,6 +95,16 @@ func (s *Server) handleGatewayModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": filtered[start:end], "page": page, "page_size": pageSize, "total": total,
 	})
+}
+
+// Match the TokenHub external model directory, including configured drafts and
+// legacy models that predate the explicit directory role.
+func gatewayModelIsConfigured(model Model, routedModels map[string]bool) bool {
+	if model.Metadata[modelDirectoryRoleKey] == modelDirectoryRoleExternal || routedModels[model.Name] {
+		return true
+	}
+	source := model.Metadata["source"]
+	return source != "tokenhub-standard-catalog" && source != "public-provider-conf"
 }
 
 func gatewayModelPagination(r *http.Request) (int, int, bool) {

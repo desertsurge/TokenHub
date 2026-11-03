@@ -156,6 +156,8 @@ TokenHub 将模型生命周期拆成三个独立的管理区域：
 | **模型目录** | 只管理提供给业务应用的对外模型，即 API 契约。新建时先从内置模型参考目录选择模板，也可选择空白自定义模型；然后选择一个或多个已引入 Provider 模型，同步生成初始路由。这里的价格是统一对客价格，不随实际命中的 Provider 路由变化。 |
 | **Routing Policies** | 管理对外模型的 Provider 映射，并细调优先级、权重、项目作用域、流量分配和故障转移策略。 |
 
+AIP 集成接口 `GET /api/internal/models` 遵循模型目录的范围：返回已配置的对外模型，包括停用或尚未配置路由的模型；仅存在于内置参考目录的候选模型不返回。筛选、计数和分页均基于这个集合。列表中出现模型不代表上游已连通，也不代表已发布到 `GET /v1/models`。
+
 各区域的职责仍然分开：先添加 Provider 并引入库存；然后从内置参考目录挑选模型，创建它的对外契约、选择至少一条初始 Provider 线路并设置统一对外价格。所选模板会带出模型名、能力、上下文和建议价格，保存前均可调整。创建后，映射的新增、修改和删除只在 Routing Policies 中进行。模型目录只保留只读的上游摘要，行内入口会打开 Routing Policies 并筛选当前对外模型；Provider 渠道列表的“配置路由”会进入完整的 Routing Policies 页面，以便新增映射。例如，可以向客户端开放 `DeepSeek`，但将它路由到 `OpenAI Production / gpt-4.5`。同一个 Provider 模型可以支持多个对外别名，一个对外模型也可以路由到多个 Provider。
 
 内置 StepFun 渠道会严格区分普通 API 与 Step Plan 凭据：`StepFun (China)` 和 `StepFun (Global)` 使用按量付费的 `/v1` 地址；`StepFun Step Plan (China)` 和 `StepFun Step Plan (Global)` 使用订阅专用的 `/step_plan/v1` 地址。普通 API 与 Step Plan 的 Key 和 Base URL 不能混用，请选择与 Key 所属环境一致的渠道。
