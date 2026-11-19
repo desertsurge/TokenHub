@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 test_root="$(mktemp -d)"
 volume="tokenhub-plugin-volume-test-$$"
-image="node:22.23.1-bookworm-slim"
+image="node:22.23.5-bookworm-slim"
 cleanup() {
   docker volume rm "$volume" >/dev/null 2>&1 || true
   rm -rf -- "$test_root"

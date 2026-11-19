@@ -1,4 +1,4 @@
-ARG NODE_IMAGE=node:22.23.1-bookworm-slim
+ARG NODE_IMAGE=node:22.23.5-bookworm-slim
 
 FROM ${NODE_IMAGE} AS frontend-deps
 
